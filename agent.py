@@ -1,20 +1,17 @@
 import requests
-from bs4 import BeautifulSoup
 import json
 import smtplib
 import os
+import re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from datetime import datetime
-import re
+from bs4 import BeautifulSoup
 
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
 
-FILES = {
-    "JDK8": "versions_jdk8.json",
-    "JDK21": "versions_jdk21.json"
-}
+JDK8_FILE = "versions_jdk8.json"
+JDK21_FILE = "versions_jdk21.json"
 
 URLS = {
     "Tomcat 9": "https://tomcat.apache.org/download-90.cgi",
@@ -23,8 +20,9 @@ URLS = {
 }
 
 # -------------------------------
-# FETCH
+# FETCH FUNCTIONS
 # -------------------------------
+
 def get_tomcat9():
     r = requests.get(URLS["Tomcat 9"], timeout=10)
     match = re.search(r"\b9\.0\.\d+\b", r.text)
@@ -40,22 +38,26 @@ def get_postgres():
     match = re.search(r"PostgreSQL\s+(\d+\.\d+)", r.text)
     return match.group(1) if match else "Unknown"
 
+
 # -------------------------------
-# LOAD / SAVE
+# LOAD & SAVE
 # -------------------------------
-def load_state(file):
+
+def load_json(file):
     try:
         return json.load(open(file))
     except:
         return {}
 
-def save_state(file, data):
+def save_json(file, data):
     json.dump(data, open(file, "w"), indent=2)
 
+
 # -------------------------------
-# HTML TABLE
+# EMAIL TABLE
 # -------------------------------
-def build_table(title, changes):
+
+def build_table(changes):
     if not changes:
         return ""
 
@@ -70,9 +72,8 @@ def build_table(title, changes):
         """
 
     return f"""
-    <h3 style="margin-top:20px;">{title}</h3>
-    <table border="1" style="border-collapse:collapse;">
-        <tr style="background:#d9d9d9;">
+    <table border="1" style="border-collapse:collapse;margin-bottom:20px;">
+        <tr style="background:#e6e6e6;">
             <th>Component</th>
             <th>Previous Version</th>
             <th>Latest Version</th>
@@ -81,9 +82,11 @@ def build_table(title, changes):
     </table>
     """
 
+
 # -------------------------------
-# EMAIL
+# EMAIL SEND
 # -------------------------------
+
 def send_email(html):
     msg = MIMEMultipart("alternative")
 
@@ -100,84 +103,87 @@ def send_email(html):
 
     print("✅ Email sent")
 
-# -------------------------------
-# MAIN
-# -------------------------------
-def run_agent():
-    print("Agent started...")
 
-    # Latest versions
+# -------------------------------
+# MAIN LOGIC
+# -------------------------------
+
+def run_agent():
+    print("Running agent...")
+
+    # Fetch latest values
     latest = {
         "Tomcat 9": get_tomcat9(),
         "Tomcat 11": get_tomcat11(),
         "PostgreSQL": get_postgres()
     }
 
-    all_changes = {}
-    email_sections = ""
+    # Load old JSONs
+    jdk8_old = load_json(JDK8_FILE)
+    jdk21_old = load_json(JDK21_FILE)
 
-    # ---------------- JDK8 ----------------
-    jdk8_old = load_state(FILES["JDK8"])
     jdk8_changes = {}
-
-    for key in latest:
-        if key in jdk8_old and latest[key] != jdk8_old[key]:
-            jdk8_changes[key] = {
-                "old": jdk8_old[key],
-                "new": latest[key]
-            }
-
-    # ---------------- JDK21 ----------------
-    jdk21_old = load_state(FILES["JDK21"])
     jdk21_changes = {}
 
-    for key in latest:
-        if key in jdk21_old and latest[key] != jdk21_old[key]:
-            jdk21_changes[key] = {
-                "old": jdk21_old[key],
-                "new": latest[key]
-            }
+    # ---------------- JDK8 ----------------
+    jdk8_current = {
+        "Tomcat 9": latest["Tomcat 9"],
+        "PostgreSQL": latest["PostgreSQL"]
+    }
 
-    # First run initialization
     if not jdk8_old:
-        save_state(FILES["JDK8"], latest)
-        print("JDK8 initialized")
+        save_json(JDK8_FILE, jdk8_current)
+        print("Initialized JDK8")
+    else:
+        for key in jdk8_current:
+            if key in jdk8_old and jdk8_current[key] != jdk8_old[key]:
+                jdk8_changes[key] = {
+                    "old": jdk8_old[key],
+                    "new": jdk8_current[key]
+                }
+
+    # ---------------- JDK21 ----------------
+    jdk21_current = {
+        "Tomcat 11": latest["Tomcat 11"],
+        "PostgreSQL": latest["PostgreSQL"]
+    }
 
     if not jdk21_old:
-        save_state(FILES["JDK21"], latest)
-        print("JDK21 initialized")
+        save_json(JDK21_FILE, jdk21_current)
+        print("Initialized JDK21")
+    else:
+        for key in jdk21_current:
+            if key in jdk21_old and jdk21_current[key] != jdk21_old[key]:
+                jdk21_changes[key] = {
+                    "old": jdk21_old[key],
+                    "new": jdk21_current[key]
+                }
 
-    # Build email sections
-    email_sections += build_table("JDK8", jdk8_changes)
-    email_sections += build_table("JDK21", jdk21_changes)
+    # ---------------- EMAIL ----------------
 
-    # Send email if any change in any group
     if jdk8_changes or jdk21_changes:
 
-        html = f"""
-        <html>
-        <body style="font-family:Arial;">
-        <h2 style="background:#d9d9d9;padding:6px;">
-        Version Update Summary – Postgres and Apache Tomcat
-        </h2>
+        html = "<html><body style='font-family:Arial;'>"
 
-        <p><b>Date:</b> {datetime.now().strftime('%Y-%m-%d')}</p>
+        if jdk8_changes:
+            html += "<h3>JDK8</h3>"
+            html += build_table(jdk8_changes)
 
-        {email_sections}
+        if jdk21_changes:
+            html += "<h3>JDK21</h3>"
+            html += build_table(jdk21_changes)
 
-        <p>Action: Review release notes and plan upgrade.</p>
-        </body>
-        </html>
-        """
+        html += "<p>Action: Review release notes and plan upgrade.</p>"
+        html += "</body></html>"
 
         send_email(html)
 
-        # ✅ update both JSONs AFTER mail
-        save_state(FILES["JDK8"], latest)
-        save_state(FILES["JDK21"], latest)
+        # ✅ UPDATE JSON AFTER EMAIL
+        save_json(JDK8_FILE, jdk8_current)
+        save_json(JDK21_FILE, jdk21_current)
 
     else:
-        print("No changes detected")
+        print("✅ No changes detected")
 
 
 if __name__ == "__main__":
