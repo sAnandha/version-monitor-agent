@@ -84,7 +84,6 @@ def build_email(changes):
     <html>
     <body style="font-family:Arial;">
     <h2>🚀 Version Update Alert</h2>
-
     <p><b>Date:</b> {datetime.now().strftime('%Y-%m-%d')}</p>
 
     <table border="1" cellpadding="8" cellspacing="0">
@@ -98,8 +97,6 @@ def build_email(changes):
     </table>
 
     <p>Action: Review and plan upgrade if required.</p>
-
-    <p style="color:gray;">Automated Agent</p>
     </body>
     </html>
     """
@@ -112,7 +109,7 @@ def send_email(html):
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"[ALERT] Version Update - {datetime.now().date()}"
     msg["From"] = EMAIL_USER
-    msg["To"] = EMAIL_USER   # change if multiple recipients needed
+    msg["To"] = EMAIL_USER
 
     msg.attach(MIMEText(html, "html"))
 
@@ -126,6 +123,43 @@ def send_email(html):
 # MAIN LOGIC
 # -------------------------------
 def run_agent():
+    print("Agent started...")
+
     old = load_state()
+    print("OLD:", old)
 
     new = {
+        "Tomcat 9": get_tomcat9(),
+        "Tomcat 11": get_tomcat11(),
+        "PostgreSQL": get_postgres()
+    }
+
+    print("NEW:", new)
+
+    changes = {}
+
+    for key in new:
+        if key in old:
+            if new[key] != old[key]:   # ✅ FIXED LINE
+                changes[key] = {
+                    "old": old[key],
+                    "new": new[key]
+                }
+
+    if not old:
+        save_state(new)
+        print("Initial run complete")
+        return
+
+    if changes:
+        print("Changes detected:", changes)
+        html = build_email(changes)
+        send_email(html)
+    else:
+        print("No changes detected")
+
+    save_state(new)
+
+
+if __name__ == "__main__":
+    run_agent()
