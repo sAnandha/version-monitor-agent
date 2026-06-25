@@ -22,18 +22,15 @@ URLS = {
 # -------------------------------
 # FETCH FUNCTIONS
 # -------------------------------
-
 def get_tomcat9():
     r = requests.get(URLS["Tomcat 9"], timeout=10)
     match = re.search(r"\b9\.0\.\d+\b", r.text)
     return match.group(0) if match else "Unknown"
 
-
 def get_tomcat11():
     r = requests.get(URLS["Tomcat 11"], timeout=10)
     match = re.search(r"\b11\.\d+\.\d+\b", r.text)
     return match.group(0) if match else "Unknown"
-
 
 def get_postgres():
     r = requests.get(URLS["PostgreSQL"], timeout=10)
@@ -44,22 +41,19 @@ def get_postgres():
 # -------------------------------
 # JSON HELPERS
 # -------------------------------
-
 def load_json(file):
     try:
         return json.load(open(file))
     except:
         return {}
 
-
 def save_json(file, data):
     json.dump(data, open(file, "w"), indent=2)
 
 
 # -------------------------------
-# EMAIL LIST
+# LOAD EMAILS
 # -------------------------------
-
 def load_recipients():
     try:
         data = json.load(open(EMAIL_FILE))
@@ -69,20 +63,20 @@ def load_recipients():
 
 
 # -------------------------------
-# TABLE BUILDER
+# BUILD FULL TABLE (ALWAYS SHOW ALL ROWS)
 # -------------------------------
-
-def build_table(changes):
-    if not changes:
-        return ""
-
+def build_full_table(current, old):
     rows = ""
-    for comp, val in changes.items():
+
+    for comp in current:
+        old_val = old.get(comp, "N/A")
+        new_val = current[comp]
+
         rows += f"""
         <tr>
             <td>{comp}</td>
-            <td>{val['old']}</td>
-            <td>{val['new']}</td>
+            <td>{old_val}</td>
+            <td>{new_val}</td>
         </tr>
         """
 
@@ -101,7 +95,6 @@ def build_table(changes):
 # -------------------------------
 # EMAIL SEND
 # -------------------------------
-
 def send_email(html):
     recipients = load_recipients()
 
@@ -130,10 +123,10 @@ def send_email(html):
 # -------------------------------
 # MAIN LOGIC
 # -------------------------------
-
 def run_agent():
     print("Running agent...")
 
+    # Fetch latest versions
     latest = {
         "Tomcat 9": get_tomcat9(),
         "Tomcat 11": get_tomcat11(),
@@ -142,9 +135,11 @@ def run_agent():
 
     print("Latest:", latest)
 
+    # Load previous JSON
     jdk8_old = load_json(JDK8_FILE)
     jdk21_old = load_json(JDK21_FILE)
 
+    # Current mapping
     jdk8_current = {
         "Tomcat 9": latest["Tomcat 9"],
         "PostgreSQL": latest["PostgreSQL"]
@@ -196,18 +191,18 @@ def run_agent():
 
         if jdk8_changes:
             html += "<h3>JDK8</h3>"
-            html += build_table(jdk8_changes)
+            html += build_full_table(jdk8_current, jdk8_old)
 
         if jdk21_changes:
             html += "<h3>JDK21</h3>"
-            html += build_table(jdk21_changes)
+            html += build_full_table(jdk21_current, jdk21_old)
 
         html += "<p>Action: Review release notes and plan upgrade.</p>"
         html += "</body></html>"
 
         send_email(html)
 
-        # ✅ update JSON AFTER email
+        # ✅ UPDATE JSON AFTER EMAIL
         save_json(JDK8_FILE, jdk8_current)
         save_json(JDK21_FILE, jdk21_current)
 
