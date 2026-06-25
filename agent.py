@@ -8,10 +8,13 @@ from email.mime.text import MIMEText
 from datetime import datetime
 import re
 
-STATE_FILE = "versions.json"
-
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
+
+FILES = {
+    "JDK8": "versions_jdk8.json",
+    "JDK21": "versions_jdk21.json"
+}
 
 URLS = {
     "Tomcat 9": "https://tomcat.apache.org/download-90.cgi",
@@ -19,91 +22,68 @@ URLS = {
     "PostgreSQL": "https://www.postgresql.org/docs/release/"
 }
 
-# ----------------------------------
-# FETCH FUNCTIONS
-# ----------------------------------
-
+# -------------------------------
+# FETCH
+# -------------------------------
 def get_tomcat9():
     r = requests.get(URLS["Tomcat 9"], timeout=10)
-    soup = BeautifulSoup(r.text, "html.parser")
-    match = re.search(r"\b9\.0\.\d+\b", soup.text)
+    match = re.search(r"\b9\.0\.\d+\b", r.text)
     return match.group(0) if match else "Unknown"
 
 def get_tomcat11():
     r = requests.get(URLS["Tomcat 11"], timeout=10)
-    soup = BeautifulSoup(r.text, "html.parser")
-    match = re.search(r"\b11\.\d+\.\d+\b", soup.text)
+    match = re.search(r"\b11\.\d+\.\d+\b", r.text)
     return match.group(0) if match else "Unknown"
 
 def get_postgres():
     r = requests.get(URLS["PostgreSQL"], timeout=10)
-    soup = BeautifulSoup(r.text, "html.parser")
-    match = re.search(r"PostgreSQL\s+(\d+\.\d+)", soup.text)
+    match = re.search(r"PostgreSQL\s+(\d+\.\d+)", r.text)
     return match.group(1) if match else "Unknown"
 
-
-# ----------------------------------
-# STATE MANAGEMENT
-# ----------------------------------
-
-def load_state():
+# -------------------------------
+# LOAD / SAVE
+# -------------------------------
+def load_state(file):
     try:
-        return json.load(open(STATE_FILE))
+        return json.load(open(file))
     except:
-        return {
-            "JDK8": {},
-            "JDK21": {}
-        }
+        return {}
 
-def save_state(data):
-    json.dump(data, open(STATE_FILE, "w"), indent=2)
+def save_state(file, data):
+    json.dump(data, open(file, "w"), indent=2)
 
+# -------------------------------
+# HTML TABLE
+# -------------------------------
+def build_table(title, changes):
+    if not changes:
+        return ""
 
-# ----------------------------------
-# EMAIL TEMPLATE (MATCH SCREENSHOT)
-# ----------------------------------
-
-def build_email(changes):
     rows = ""
     for comp, val in changes.items():
         rows += f"""
         <tr>
-            <td style="padding:8px;">{comp}</td>
-            <td style="padding:8px;">{val['old']}</td>
-            <td style="padding:8px;">{val['new']}</td>
+            <td>{comp}</td>
+            <td>{val['old']}</td>
+            <td>{val['new']}</td>
         </tr>
         """
 
     return f"""
-    <html>
-    <body style="font-family:Arial;background:#fff;">
-
-    <h2 style="background:#d9d9d9;padding:6px;">
-    Version Update Summary – Postgres and Apache Tomcat
-    </h2>
-
-    <p><b>Date:</b> {datetime.now().strftime('%Y-%m-%d')}</p>
-
+    <h3 style="margin-top:20px;">{title}</h3>
     <table border="1" style="border-collapse:collapse;">
         <tr style="background:#d9d9d9;">
-            <th style="padding:8px;">Component</th>
-            <th style="padding:8px;">Previous Version</th>
-            <th style="padding:8px;">Latest Version</th>
+            <th>Component</th>
+            <th>Previous Version</th>
+            <th>Latest Version</th>
         </tr>
         {rows}
     </table>
-
-    <p style="margin-top:10px;">Action: Review release notes and plan upgrade.</p>
-
-    </body>
-    </html>
     """
 
-
-# ----------------------------------
-# EMAIL SEND
-# ----------------------------------
-
+# -------------------------------
+# EMAIL
+# -------------------------------
 def send_email(html):
     msg = MIMEMultipart("alternative")
 
@@ -120,57 +100,81 @@ def send_email(html):
 
     print("✅ Email sent")
 
-
-# ----------------------------------
-# MAIN LOGIC
-# ----------------------------------
-
+# -------------------------------
+# MAIN
+# -------------------------------
 def run_agent():
     print("Agent started...")
 
-    old = load_state()
-
-    new_versions = {
+    # Latest versions
+    latest = {
         "Tomcat 9": get_tomcat9(),
         "Tomcat 11": get_tomcat11(),
         "PostgreSQL": get_postgres()
     }
 
-    print("NEW:", new_versions)
+    all_changes = {}
+    email_sections = ""
 
-    # storing versions under JDK8 group (can expand later)
-    jdk = "JDK8"
+    # ---------------- JDK8 ----------------
+    jdk8_old = load_state(FILES["JDK8"])
+    jdk8_changes = {}
 
-    if jdk not in old:
-        old[jdk] = {}
-
-    changes = {}
-
-    for key in new_versions:
-        old_val = old[jdk].get(key)
-
-        if old_val and new_versions[key] != oldchanges[key] = {
-                "old": old_val,
-                "new": new_versions[key]
+    for key in latest:
+        if key in jdk8_old and latest[key] != jdk8_old[key]:
+            jdk8_changes[key] = {
+                "old": jdk8_old[key],
+                "new": latest[key]
             }
 
-    # FIRST RUN → initialize only
-    if not old[jdk]:
-        old[jdk] = new_versions
-        save_state(old)
-        print("Initial baseline created")
-        return
+    # ---------------- JDK21 ----------------
+    jdk21_old = load_state(FILES["JDK21"])
+    jdk21_changes = {}
 
-    # SEND MAIL IF CHANGE
-    if changes:
-        print("Changes detected:", changes)
+    for key in latest:
+        if key in jdk21_old and latest[key] != jdk21_old[key]:
+            jdk21_changes[key] = {
+                "old": jdk21_old[key],
+                "new": latest[key]
+            }
 
-        html = build_email(changes)
+    # First run initialization
+    if not jdk8_old:
+        save_state(FILES["JDK8"], latest)
+        print("JDK8 initialized")
+
+    if not jdk21_old:
+        save_state(FILES["JDK21"], latest)
+        print("JDK21 initialized")
+
+    # Build email sections
+    email_sections += build_table("JDK8", jdk8_changes)
+    email_sections += build_table("JDK21", jdk21_changes)
+
+    # Send email if any change in any group
+    if jdk8_changes or jdk21_changes:
+
+        html = f"""
+        <html>
+        <body style="font-family:Arial;">
+        <h2 style="background:#d9d9d9;padding:6px;">
+        Version Update Summary – Postgres and Apache Tomcat
+        </h2>
+
+        <p><b>Date:</b> {datetime.now().strftime('%Y-%m-%d')}</p>
+
+        {email_sections}
+
+        <p>Action: Review release notes and plan upgrade.</p>
+        </body>
+        </html>
+        """
+
         send_email(html)
 
-        # ✅ UPDATE JSON AFTER MAIL
-        old[jdk] = new_versions
-        save_state(old)
+        # ✅ update both JSONs AFTER mail
+        save_state(FILES["JDK8"], latest)
+        save_state(FILES["JDK21"], latest)
 
     else:
         print("No changes detected")
