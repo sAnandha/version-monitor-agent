@@ -2,7 +2,7 @@ name: Version Monitor Agent
 
 on:
   schedule:
-    - cron: "0 3 * * *"    # Runs daily at 3 AM UTC
+    - cron: "15 5 * * *"
   workflow_dispatch:       # Allows manual trigger
 
 jobs:
