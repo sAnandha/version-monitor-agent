@@ -2,24 +2,31 @@ name: Version Monitor Agent
 
 on:
   schedule:
-    - cron: "0 3 * * *"
-  workflow_dispatch:
+    - cron: "0 3 * * *"    # Runs daily at 3 AM UTC
+  workflow_dispatch:       # Allows manual trigger
 
 jobs:
   run-agent:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      # Step 1: Checkout repo code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Step 2: Set up Python
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      # Step 3: Install dependencies
+      - name: Install dependencies
         run: pip install requests beautifulsoup4
 
-      - name: Run script
+      # Step 4: Run your AI agent
+      - name: Run monitoring agent
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
         run: python agent.py
