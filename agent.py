@@ -22,6 +22,7 @@ URLS = {
 # -------------------------------
 # FETCH FUNCTIONS
 # -------------------------------
+
 def get_tomcat9():
     r = requests.get(URLS["Tomcat 9"], timeout=10)
     match = re.search(r"\b9\.0\.\d+\b", r.text)
@@ -43,6 +44,7 @@ def get_postgres():
 # -------------------------------
 # JSON HELPERS
 # -------------------------------
+
 def load_json(file):
     try:
         return json.load(open(file))
@@ -55,8 +57,9 @@ def save_json(file, data):
 
 
 # -------------------------------
-# LOAD EMAIL RECIPIENTS
+# EMAIL LIST
 # -------------------------------
+
 def load_recipients():
     try:
         data = json.load(open(EMAIL_FILE))
@@ -68,6 +71,7 @@ def load_recipients():
 # -------------------------------
 # TABLE BUILDER
 # -------------------------------
+
 def build_table(changes):
     if not changes:
         return ""
@@ -97,8 +101,11 @@ def build_table(changes):
 # -------------------------------
 # EMAIL SEND
 # -------------------------------
+
 def send_email(html):
     recipients = load_recipients()
+
+    print("Recipients:", recipients)
 
     if not recipients:
         print("❌ No recipients configured")
@@ -117,12 +124,13 @@ def send_email(html):
         server.login(EMAIL_USER, EMAIL_PASS)
         server.sendmail(EMAIL_USER, recipients, msg.as_string())
 
-    print("✅ Email sent to:", recipients)
+    print("✅ Email sent")
 
 
 # -------------------------------
 # MAIN LOGIC
 # -------------------------------
+
 def run_agent():
     print("Running agent...")
 
@@ -131,6 +139,8 @@ def run_agent():
         "Tomcat 11": get_tomcat11(),
         "PostgreSQL": get_postgres()
     }
+
+    print("Latest:", latest)
 
     jdk8_old = load_json(JDK8_FILE)
     jdk21_old = load_json(JDK21_FILE)
@@ -145,6 +155,11 @@ def run_agent():
         "PostgreSQL": latest["PostgreSQL"]
     }
 
+    print("JDK8 old:", jdk8_old)
+    print("JDK8 new:", jdk8_current)
+    print("JDK21 old:", jdk21_old)
+    print("JDK21 new:", jdk21_current)
+
     jdk8_changes = {}
     jdk21_changes = {}
 
@@ -154,10 +169,12 @@ def run_agent():
         print("Initialized JDK8")
     else:
         for key in jdk8_current:
-            if key in jdk8_old and jdk8_current[key] != jdk8_oldjdk8_changes[key] = {
-                    "old": jdk8_old[key],
-                    "new": jdk8_current[key]
-                }
+            if key in jdk8_old:
+                if jdk8_current[key] != jdk8_old[key]:
+                    jdk8_changes[key] = {
+                        "old": jdk8_old[key],
+                        "new": jdk8_current[key]
+                    }
 
     # -------- JDK21 --------
     if not jdk21_old:
@@ -165,10 +182,12 @@ def run_agent():
         print("Initialized JDK21")
     else:
         for key in jdk21_current:
-            if key in jdk21_old and jdk21_current[key] != jdk21_oldjdk21_changes[key] = {
-                    "old": jdk21_old[key],
-                    "new": jdk21_current[key]
-                }
+            if key in jdk21_old:
+                if jdk21_current[key] != jdk21_old[key]:
+                    jdk21_changes[key] = {
+                        "old": jdk21_old[key],
+                        "new": jdk21_current[key]
+                    }
 
     # -------- SEND EMAIL --------
     if jdk8_changes or jdk21_changes:
