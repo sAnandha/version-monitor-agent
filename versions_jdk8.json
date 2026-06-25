@@ -1,5 +1,4 @@
-
 {
-  "Tomcat 9": "9.0.115",
-  "PostgreSQL": "19 Beta 1"
+  "Tomcat 9": "9.0.119",
+  "PostgreSQL": "9.6"
 }
