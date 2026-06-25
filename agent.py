@@ -112,7 +112,7 @@ def send_email(html):
         return
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"[ALERT] Version Update - {datetime.now().date()}"
+    msg["Subject"] = f"Version Update Summary – Postgres and Apache Tomcat"
     msg["From"] = EMAIL_USER
     msg["To"] = EMAIL_USER
 
