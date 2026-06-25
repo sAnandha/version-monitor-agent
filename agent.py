@@ -6,6 +6,7 @@ import os
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime
+import re
 
 STATE_FILE = "versions.json"
 
@@ -19,32 +20,34 @@ URLS = {
 }
 
 # -------------------------------
-# FETCH FUNCTIONS
+# FETCH FUNCTIONS (IMPROVED)
 # -------------------------------
+
 def get_tomcat9():
     r = requests.get(URLS["Tomcat 9"], timeout=10)
     soup = BeautifulSoup(r.text, "html.parser")
 
-    for line in soup.get_text().split("\n"):
-        if "Latest stable release" in line:
-            return line.strip().split()[-1]
-    return "Unknown"
+    # ✅ Extract version like 9.0.119
+    match = re.search(r"\b9\.0\.\d+\b", soup.text)
+    return match.group(0) if match else "Unknown"
 
 
 def get_tomcat11():
     r = requests.get(URLS["Tomcat 11"], timeout=10)
     soup = BeautifulSoup(r.text, "html.parser")
+    text = soup.text
 
-    title = soup.find("title").text
-    return title.split("(")[-1].replace(")", "").strip()
+    match = re.search(r"\b11\.\d+\.\d+\b", text)
+    return match.group(0) if match else "Unknown"
 
 
 def get_postgres():
     r = requests.get(URLS["PostgreSQL"], timeout=10)
     soup = BeautifulSoup(r.text, "html.parser")
+    text = soup.text
 
-    link = soup.select_one("a")
-    return link.text.strip() if link else "Unknown"
+    match = re.search(r"PostgreSQL\s+(\d+\.\d+)", text)
+    return match.group(1) if match else "Unknown"
 
 
 # -------------------------------
@@ -81,21 +84,21 @@ def build_email(changes):
     return f"""
     <html>
     <body style="font-family:Arial;">
-    <h2>🚀 Version Update Alert</h2>
+    <h2>Version Update Summary – Postgres and Apache Tomcat</h2>
 
     <p><b>Date:</b> {datetime.now().strftime('%Y-%m-%d')}</p>
 
     <table border="1" cellpadding="8" cellspacing="0">
         <tr style="background:#eee;">
             <th>Component</th>
-            <th>Previous</th>
-            <th>Latest</th>
+            <th>Previous Version</th>
+            <th>Latest Version</th>
             <th>Status</th>
         </tr>
         {rows}
     </table>
 
-    <p>Action: Review and plan upgrade if required.</p>
+    <p>Action: Review release notes and plan upgrade.</p>
     </body>
     </html>
     """
@@ -105,14 +108,9 @@ def build_email(changes):
 # EMAIL SENDER
 # -------------------------------
 def send_email(html):
-    print("Sending email...")
-
-    if not EMAIL_USER or not EMAIL_PASS:
-        print("ERROR: Email credentials missing")
-        return
-
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"Version Update Summary – Postgres and Apache Tomcat"
+
+    msg["Subject"] = "Version Update Summary – Postgres and Apache Tomcat"
     msg["From"] = EMAIL_USER
     msg["To"] = EMAIL_USER
 
@@ -150,13 +148,12 @@ def run_agent():
 
     for key in new:
         if key in old:
-            if new[key] != old[key]:  # ✅ CORRECT LINE
+            if new[key] != old[key]:
                 changes[key] = {
                     "old": old[key],
                     "new": new[key]
                 }
 
-    # First run
     if not old:
         save_state(new)
         print("Initial run complete")
