@@ -43,7 +43,10 @@ def get_postgres():
     r = requests.get(URLS["PostgreSQL"], timeout=10)
     soup = BeautifulSoup(r.text, "html.parser")
 
-    return soup.select_one("a").text.strip()
+    link = soup.select_one("a")
+    if link:
+        return link.text.strip()
+    return "Unknown"
 
 
 # -------------------------------
@@ -98,3 +101,31 @@ def build_email(changes):
 
     <p style="color:gray;">Automated Agent</p>
     </body>
+    </html>
+    """
+
+
+# -------------------------------
+# EMAIL SENDER
+# -------------------------------
+def send_email(html):
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"[ALERT] Version Update - {datetime.now().date()}"
+    msg["From"] = EMAIL_USER
+    msg["To"] = EMAIL_USER   # change if multiple recipients needed
+
+    msg.attach(MIMEText(html, "html"))
+
+    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        server.starttls()
+        server.login(EMAIL_USER, EMAIL_PASS)
+        server.sendmail(EMAIL_USER, [EMAIL_USER], msg.as_string())
+
+
+# -------------------------------
+# MAIN LOGIC
+# -------------------------------
+def run_agent():
+    old = load_state()
+
+    new = {
