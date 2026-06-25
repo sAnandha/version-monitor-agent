@@ -2,7 +2,7 @@ name: Version Monitor Agent
 
 on:
   schedule:
-    - cron: "15 5 * * *"   # 10:45 AM IST
+    - cron: "15 5 * * *"
   workflow_dispatch:
 
 jobs:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -26,3 +26,15 @@ jobs:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
         run: python agent.py
+
+      # ✅ NEW STEP (CRITICAL)
+      - name: Commit updated JSON
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+
+          git add versions_jdk8.json versions_jdk21.json
+
+          git commit -m "Auto update version JSON" || echo "No changes"
+
+          git push
