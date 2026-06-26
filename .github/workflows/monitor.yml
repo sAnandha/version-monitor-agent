@@ -2,7 +2,7 @@ name: Version Monitor Agent
 
 on:
   schedule:
-    - cron: "40 5 * * *"    # ✅ 11:10 AM IST
+    - cron: "40 5 * * *"   # ✅ 11:10 AM IST
   workflow_dispatch:
 
 jobs:
@@ -23,3 +23,17 @@ jobs:
 
       - name: Run agent
         env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+        run: python agent.py
+
+      - name: Commit updated JSON
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+
+          git add versions_jdk8.json versions_jdk21.json
+
+          git commit -m "Auto update version JSON" || echo "No changes"
+
+          git push origin main
