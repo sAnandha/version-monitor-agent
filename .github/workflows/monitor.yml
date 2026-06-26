@@ -2,7 +2,7 @@ name: Version Monitor Agent
 
 on:
   schedule:
-    - cron: "40 5 * * *"   # ✅ 11:10 AM IST
+    - cron: "*/5 * * * *"   # ✅ 11:10 AM IST
   workflow_dispatch:
 
 jobs:
