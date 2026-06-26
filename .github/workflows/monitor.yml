@@ -1,35 +1,29 @@
+---
 name: Version Monitor Agent
-
 on:
   schedule:
-    - cron: "*/5 * * * *"   # 11:10 AM IST
-  workflow_dispatch:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: null
   push:
     branches:
       - main
-
 jobs:
   run-agent:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install dependencies
         run: pip install requests beautifulsoup4
-
       - name: Run agent
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
         run: python agent.py
-
       - name: Commit updated JSON
         run: |
           git config --global user.name "github-actions"
@@ -40,4 +34,3 @@ jobs:
           git commit -m "Auto update version JSON" || echo "No changes"
 
           git push origin main
-``
