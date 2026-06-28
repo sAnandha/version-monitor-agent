@@ -1,4 +1,39 @@
 {
-  "Tomcat 9": "9.0.115",
-  "PostgreSQL": "9.6"
+  "jdk": "JDK8",
+  "title": "JDK8",
+  "headers": {
+    "componentName": "Component Name",
+    "dsrVersions": [
+      "DSR 8.0.42",
+      "DSR 9.0.25"
+    ],
+    "latestComponentVersion": "Latest Component Version released",
+    "releaseDate": "Release Date of the Component Version",
+    "currentComponentVersion": "Current Component Version in DSR (Upcoming release)",
+    "comments": "Comments if any"
+  },
+  "components": [
+    {
+      "componentName": "Apache Tomcat",
+      "dsrVersions": {
+        "DSR 8.0.42": "9.0.115",
+        "DSR 9.0.25": "9.0.115"
+      },
+      "latestComponentVersion": "9.0.119",
+      "releaseDate": "June 18, 2026",
+      "currentComponentVersion": "9.0.118",
+      "comments": "Will discuss with Team for version upgrade."
+    },
+    {
+      "componentName": "PostgreSQL",
+      "dsrVersions": {
+        "DSR 8.0.42": "18.3",
+        "DSR 9.0.25": "18.3"
+      },
+      "latestComponentVersion": "19 Beta 1",
+      "releaseDate": "June 04, 2026",
+      "currentComponentVersion": "18.4",
+      "comments": "Upgrade to v18.4 in progress."
+    }
+  ]
 }
