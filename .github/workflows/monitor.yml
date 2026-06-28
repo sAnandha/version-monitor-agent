@@ -1,35 +1,48 @@
 name: Version Monitor Agent
+
+permissions:
+  contents: write
+
 on:
   schedule:
-    - cron: "*/5 * * * *"
-  workflow_dispatch: null
-  push:
-    branches:
-      - main
+    # Runs every day at 11:00 AM IST (05:30 UTC)
+    - cron: "30 5 * * *"
+
+  workflow_dispatch:
+
 jobs:
   run-agent:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repo
+      - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install dependencies
-        run: pip install requests beautifulsoup4
-      - name: Run agent
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4
+
+      - name: Run Version Monitor Agent
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
         run: python agent.py
-      - name: Commit updated JSON
+
+      - name: Commit Updated JSON Files
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
 
           git add versions_jdk8.json versions_jdk21.json
 
-          git commit -m "Auto update version JSON" || echo "No changes"
+          git commit -m "Auto update version JSON" || echo "No changes to commit"
 
           git push origin main
