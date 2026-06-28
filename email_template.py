@@ -164,8 +164,8 @@ def build_email(jdk8_data, jdk21_data):
 <p>Hi Team,</p>
 
 <p>
-Below is the latest version monitoring report generated on
-<b>{today}</b>.
+Please find below the version update summary for
+<b>Apache Tomcat</b> and <b>Postgres</b> components used in <b>DSR</b>.
 </p>
 
 {build_table(jdk8_data,True)}
