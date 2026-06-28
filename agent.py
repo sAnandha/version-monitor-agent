@@ -77,7 +77,7 @@ def send_email(html):
         return
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Version Monitoring Report"
+    msg["Subject"] = "Version Update Summary – Postgres and Apache Tomcat"
     msg["From"] = EMAIL_USER
     msg["To"] = ", ".join(recipients)
     msg.attach(MIMEText(html, "html"))
