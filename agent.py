@@ -1,10 +1,24 @@
-import requests
+
+"""
+Skeleton agent.py for Version Monitor Agent.
+
+NOTE:
+This file is designed to work with the email_template.py you created.
+You will need to adjust the JSON field names to exactly match your
+versions_jdk8.json and versions_jdk21.json structure.
+"""
+
 import json
-import smtplib
 import os
 import re
+import smtplib
+import requests
+
+from copy import deepcopy
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+from email_template import build_email
 
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
@@ -19,196 +33,108 @@ URLS = {
     "PostgreSQL": "https://www.postgresql.org/docs/release/"
 }
 
-# -------------------------------
-# FETCH FUNCTIONS
-# -------------------------------
+
 def get_tomcat9():
-    r = requests.get(URLS["Tomcat 9"], timeout=10)
-    match = re.search(r"\b9\.0\.\d+\b", r.text)
-    return match.group(0) if match else "Unknown"
+    r = requests.get(URLS["Tomcat 9"], timeout=20)
+    r.raise_for_status()
+    m = re.search(r"\b9\.0\.\d+\b", r.text)
+    return m.group(0) if m else "Unknown"
+
 
 def get_tomcat11():
-    r = requests.get(URLS["Tomcat 11"], timeout=10)
-    match = re.search(r"\b11\.\d+\.\d+\b", r.text)
-    return match.group(0) if match else "Unknown"
+    r = requests.get(URLS["Tomcat 11"], timeout=20)
+    r.raise_for_status()
+    m = re.search(r"\b11\.\d+\.\d+\b", r.text)
+    return m.group(0) if m else "Unknown"
+
 
 def get_postgres():
-    r = requests.get(URLS["PostgreSQL"], timeout=10)
-    match = re.search(r"PostgreSQL\s+(\d+\.\d+)", r.text)
-    return match.group(1) if match else "Unknown"
+    r = requests.get(URLS["PostgreSQL"], timeout=20)
+    r.raise_for_status()
+    m = re.search(r"PostgreSQL\s+(\d+\.\d+)", r.text)
+    return m.group(1) if m else "Unknown"
 
 
-# -------------------------------
-# JSON HELPERS
-# -------------------------------
-def load_json(file):
-    try:
-        return json.load(open(file))
-    except:
-        return {}
-
-def save_json(file, data):
-    json.dump(data, open(file, "w"), indent=2)
+def load_json(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
-# -------------------------------
-# LOAD EMAILS
-# -------------------------------
+def save_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
 def load_recipients():
-    try:
-        data = json.load(open(EMAIL_FILE))
-        return data.get("recipients", [])
-    except:
-        return []
+    data = load_json(EMAIL_FILE)
+    return data.get("recipients", [])
 
 
-# -------------------------------
-# BUILD FULL TABLE (ALWAYS SHOW ALL ROWS)
-# -------------------------------
-def build_full_table(current, old):
-    rows = ""
-
-    for comp in current:
-        old_val = old.get(comp, "N/A")
-        new_val = current[comp]
-
-        rows += f"""
-        <tr>
-            <td>{comp}</td>
-            <td>{old_val}</td>
-            <td>{new_val}</td>
-        </tr>
-        """
-
-    return f"""
-    <table border="1" style="border-collapse:collapse;margin-bottom:20px;">
-        <tr style="background:#e6e6e6;">
-            <th>Component</th>
-            <th>Previous Version</th>
-            <th>Latest Version</th>
-        </tr>
-        {rows}
-    </table>
-    """
-
-
-# -------------------------------
-# EMAIL SEND
-# -------------------------------
 def send_email(html):
     recipients = load_recipients()
-
-    print("Recipients:", recipients)
-
     if not recipients:
-        print("❌ No recipients configured")
+        print("No recipients configured.")
         return
 
     msg = MIMEMultipart("alternative")
-
-    msg["Subject"] = "Version Update Summary – Postgres and Apache Tomcat"
+    msg["Subject"] = "Version Monitoring Report"
     msg["From"] = EMAIL_USER
     msg["To"] = ", ".join(recipients)
-
     msg.attach(MIMEText(html, "html"))
 
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(EMAIL_USER, EMAIL_PASS)
-        server.sendmail(EMAIL_USER, recipients, msg.as_string())
-
-    print("✅ Email sent")
+    with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+        smtp.starttls()
+        smtp.login(EMAIL_USER, EMAIL_PASS)
+        smtp.sendmail(EMAIL_USER, recipients, msg.as_string())
 
 
-# -------------------------------
-# MAIN LOGIC
-# -------------------------------
-def run_agent():
-    print("Running agent...")
+def update_component(component, latest_version):
+    changed = False
+    if component["latestComponentVersion"] != latest_version:
+        component["latestComponentVersion"] = latest_version
+        changed = True
+    return changed
 
-    # Fetch latest versions
+
+def process():
+    jdk8 = load_json(JDK8_FILE)
+    jdk21 = load_json(JDK21_FILE)
+
+    original8 = deepcopy(jdk8)
+    original21 = deepcopy(jdk21)
+
     latest = {
         "Tomcat 9": get_tomcat9(),
         "Tomcat 11": get_tomcat11(),
         "PostgreSQL": get_postgres()
     }
 
-    print("Latest:", latest)
+    changed = False
 
-    # Load previous JSON
-    jdk8_old = load_json(JDK8_FILE)
-    jdk21_old = load_json(JDK21_FILE)
+    for c in jdk8["components"]:
+        if c["componentName"] == "Apache Tomcat":
+            changed |= update_component(c, latest["Tomcat 9"])
+        elif c["componentName"] == "PostgreSQL":
+            changed |= update_component(c, latest["PostgreSQL"])
 
-    # Current mapping
-    jdk8_current = {
-        "Tomcat 9": latest["Tomcat 9"],
-        "PostgreSQL": latest["PostgreSQL"]
-    }
+    for c in jdk21["components"]:
+        if c["componentName"] == "Apache Tomcat":
+            changed |= update_component(c, latest["Tomcat 11"])
+        elif c["componentName"] == "PostgreSQL":
+            changed |= update_component(c, latest["PostgreSQL"])
 
-    jdk21_current = {
-        "Tomcat 11": latest["Tomcat 11"],
-        "PostgreSQL": latest["PostgreSQL"]
-    }
+    if not changed:
+        print("No version changes detected.")
+        return
 
-    print("JDK8 old:", jdk8_old)
-    print("JDK8 new:", jdk8_current)
-    print("JDK21 old:", jdk21_old)
-    print("JDK21 new:", jdk21_current)
+    html = build_email(jdk8, jdk21)
+    send_email(html)
 
-    jdk8_changes = {}
-    jdk21_changes = {}
+    save_json(JDK8_FILE, jdk8)
+    save_json(JDK21_FILE, jdk21)
 
-    # -------- JDK8 --------
-    if not jdk8_old:
-        save_json(JDK8_FILE, jdk8_current)
-        print("Initialized JDK8")
-    else:
-        for key in jdk8_current:
-            if key in jdk8_old:
-                if jdk8_current[key] != jdk8_old[key]:
-                    jdk8_changes[key] = {
-                        "old": jdk8_old[key],
-                        "new": jdk8_current[key]
-                    }
-
-    # -------- JDK21 --------
-    if not jdk21_old:
-        save_json(JDK21_FILE, jdk21_current)
-        print("Initialized JDK21")
-    else:
-        for key in jdk21_current:
-            if key in jdk21_old:
-                if jdk21_current[key] != jdk21_old[key]:
-                    jdk21_changes[key] = {
-                        "old": jdk21_old[key],
-                        "new": jdk21_current[key]
-                    }
-
-    # -------- SEND EMAIL --------
-    if jdk8_changes or jdk21_changes:
-
-        html = "<html><body style='font-family:Arial;'>"
-
-        if jdk8_changes:
-            html += "<h3>JDK8</h3>"
-            html += build_full_table(jdk8_current, jdk8_old)
-
-        if jdk21_changes:
-            html += "<h3>JDK21</h3>"
-            html += build_full_table(jdk21_current, jdk21_old)
-
-        html += "<p>Action: Review release notes and plan upgrade.</p>"
-        html += "</body></html>"
-
-        send_email(html)
-
-        # ✅ UPDATE JSON AFTER EMAIL
-        save_json(JDK8_FILE, jdk8_current)
-        save_json(JDK21_FILE, jdk21_current)
-
-    else:
-        print("✅ No changes detected")
+    print("Email sent and JSON updated.")
 
 
 if __name__ == "__main__":
-    run_agent()
+    process()
