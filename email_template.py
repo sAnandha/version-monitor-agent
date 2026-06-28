@@ -1,4 +1,3 @@
-from datetime import datetime
 
 TABLE_STYLE = """
 <style>
@@ -150,9 +149,6 @@ Component versions in the last release of DSR
 
 
 def build_email(jdk8_data, jdk21_data):
-
-    today = datetime.now().strftime("%d-%b-%Y")
-
     html = f"""
 
 <html>
