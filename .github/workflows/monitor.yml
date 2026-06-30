@@ -6,7 +6,7 @@ permissions:
 on:
   schedule:
     # Runs every day at 12:00 PM IST (06:30 UTC)
-    - cron: "30 6 * * *"
+    - cron: "30 9 * * *"
 
   workflow_dispatch:
 
