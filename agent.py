@@ -49,10 +49,18 @@ def get_tomcat11():
 
 
 def get_postgres():
+    """Fetch latest release from the banner, e.g. 'June 4, 2026: PostgreSQL 19 Beta 1 Released!'"""
     r = requests.get(URLS["PostgreSQL"], timeout=20)
     r.raise_for_status()
-    m = re.search(r"PostgreSQL\s+(\d+\.\d+)", r.text)
-    return m.group(1) if m else "Unknown"
+    patterns = [
+        r"([A-Za-z]+\s+\d{1,2},\s+\d{4}):\s*<a[^>]*>(PostgreSQL\s+.+?)\s*Released!</a>",
+        r"([A-Za-z]+\s+\d{1,2},\s+\d{4}):\s*(PostgreSQL\s+.+?)\s*Released!",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, r.text)
+        if m:
+            return {"version": m.group(2).strip(), "release_date": m.group(1).strip()}
+    return {"version": "Unknown", "release_date": "Unknown"}
 
 
 def load_json(path):
@@ -96,6 +104,17 @@ def update_component(component, latest_version):
     return changed
 
 
+def update_postgres_component(component, version, release_date):
+    changed = False
+    if component["latestComponentVersion"] != version:
+        component["latestComponentVersion"] = version
+        changed = True
+    if component.get("releaseDate") != release_date:
+        component["releaseDate"] = release_date
+        changed = True
+    return changed
+
+
 def process():
     jdk8 = load_json(JDK8_FILE)
     jdk21 = load_json(JDK21_FILE)
@@ -103,10 +122,12 @@ def process():
     original8 = deepcopy(jdk8)
     original21 = deepcopy(jdk21)
 
+    postgres = get_postgres()
+
     latest = {
         "Tomcat 9": get_tomcat9(),
         "Tomcat 11": get_tomcat11(),
-        "PostgreSQL": get_postgres()
+        "PostgreSQL": postgres,
     }
 
     changed = False
@@ -115,13 +136,17 @@ def process():
         if c["componentName"] == "Apache Tomcat":
             changed |= update_component(c, latest["Tomcat 9"])
         elif c["componentName"] == "PostgreSQL":
-            changed |= update_component(c, latest["PostgreSQL"])
+            changed |= update_postgres_component(
+                c, postgres["version"], postgres["release_date"]
+            )
 
     for c in jdk21["components"]:
         if c["componentName"] == "Apache Tomcat":
             changed |= update_component(c, latest["Tomcat 11"])
         elif c["componentName"] == "PostgreSQL":
-            changed |= update_component(c, latest["PostgreSQL"])
+            changed |= update_postgres_component(
+                c, postgres["version"], postgres["release_date"]
+            )
 
     if not changed:
         print("No version changes detected.")
