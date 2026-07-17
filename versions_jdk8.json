@@ -30,8 +30,8 @@
         "DSR 8.0.42": "18.3",
         "DSR 9.0.25": "18.3"
       },
-      "latestComponentVersion": "PostgreSQL 19 Beta 1",
-      "releaseDate": "June 4, 2026",
+      "latestComponentVersion": "PostgreSQL 19 Beta 2",
+      "releaseDate": "July 16, 2026",
       "currentComponentVersion": "18.4",
       "comments": "Upgrade to v18.4 in progress."
     }
