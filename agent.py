@@ -1,3 +1,11 @@
+
+""" 
+This is the Python Based Agent allows to Compare 
+the Latest Available version and Previous Version 
+and Automatically Triggers mail if any Changes detected.
+
+"""
+
 import json
 import os
 import re
@@ -20,6 +28,8 @@ JDK21_FILE = "versions_jdk21.json"
 
 RECIPIENTS_JDK8_ENV = "EMAIL_RECIPIENTS_JDK8"
 RECIPIENTS_JDK21_ENV = "EMAIL_RECIPIENTS_JDK21"
+CC_RECIPIENTS_JDK8_ENV = "EMAIL_CC_RECIPIENTS_JDK8"
+CC_RECIPIENTS_JDK21_ENV = "EMAIL_CC_RECIPIENTS_JDK21"
 
 URLS = {
     "Tomcat 9 Changelog": "https://tomcat.apache.org/tomcat-9.0-doc/changelog.html",
@@ -83,26 +93,33 @@ def save_json(path, data):
         json.dump(data, f, indent=2)
 
 
-def load_recipients(env_var):
-    raw = os.getenv(env_var, "") or os.getenv("EMAIL_RECIPIENTS", "")
+def load_recipients(env_var, fallback_env=None):
+    raw = os.getenv(env_var, "")
+    if not raw.strip() and fallback_env:
+        raw = os.getenv(fallback_env, "")
     return [e.strip() for e in raw.split(",") if e.strip()]
 
 
-def send_email(html, recipients, subject):
-    if not recipients:
-        print(f"No recipients configured for: {subject}")
+def send_email(html, to_list, cc_list, subject):
+    if not to_list:
+        print(f"No To recipients configured for: {subject}")
         return False
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = EMAIL_USER
-    msg["To"] = ", ".join(recipients)
+    msg["To"] = ", ".join(to_list)
+    if cc_list:
+        msg["Cc"] = ", ".join(cc_list)
     msg.attach(MIMEText(html, "html"))
+
+    # SMTP must deliver to everyone listed in To and Cc headers
+    all_recipients = list(dict.fromkeys(to_list + cc_list))
 
     with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
         smtp.starttls()
         smtp.login(EMAIL_USER, EMAIL_PASS)
-        smtp.sendmail(EMAIL_USER, recipients, msg.as_string())
+        smtp.sendmail(EMAIL_USER, all_recipients, msg.as_string())
 
     print(f"Email sent: {subject}")
     return True
@@ -176,21 +193,25 @@ def process():
         return
 
     if changed_jdk8:
-        recipients = load_recipients(RECIPIENTS_JDK8_ENV)
+        to_list = load_recipients(RECIPIENTS_JDK8_ENV, "EMAIL_RECIPIENTS")
+        cc_list = load_recipients(CC_RECIPIENTS_JDK8_ENV)
         html = build_email_jdk8(jdk8)
         send_email(
             html,
-            recipients,
+            to_list,
+            cc_list,
             "Version Update Summary – JDK8 (Tomcat / PostgreSQL)",
         )
         save_json(JDK8_FILE, jdk8)
 
     if changed_jdk21:
-        recipients = load_recipients(RECIPIENTS_JDK21_ENV)
+        to_list = load_recipients(RECIPIENTS_JDK21_ENV, "EMAIL_RECIPIENTS")
+        cc_list = load_recipients(CC_RECIPIENTS_JDK21_ENV)
         html = build_email_jdk21(jdk21)
         send_email(
             html,
-            recipients,
+            to_list,
+            cc_list,
             "Version Update Summary – JDK21 (Tomcat / PostgreSQL)",
         )
         save_json(JDK21_FILE, jdk21)
