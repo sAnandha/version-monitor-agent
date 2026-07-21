@@ -1,12 +1,3 @@
-
-"""
-Skeleton agent.py for Version Monitor Agent.
-
-NOTE:
-This file is designed to work with the email_template.py you created.
-You will need to adjust the JSON field names to exactly match your
-versions_jdk8.json and versions_jdk21.json structure.
-"""
 import json
 import os
 import re
@@ -14,59 +5,56 @@ import smtplib
 import requests
 
 from dotenv import load_dotenv
-from copy import deepcopy
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 load_dotenv()
-from email_template import build_email
-
-
+from email_template import build_email_jdk8, build_email_jdk21
 
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
-EMAIL_RECIPIENTS = os.getenv("EMAIL_RECIPIENTS")
 
 JDK8_FILE = "versions_jdk8.json"
-JDK21_FILE = "versions_jdk21.json" 
-# EMAIL_FILE = "emails.json" # Uncomment this if you want to use Json based email file
+JDK21_FILE = "versions_jdk21.json"
+
+RECIPIENTS_JDK8_ENV = "EMAIL_RECIPIENTS_JDK8"
+RECIPIENTS_JDK21_ENV = "EMAIL_RECIPIENTS_JDK21"
 
 URLS = {
-    "Tomcat 9": "https://tomcat.apache.org/download-90.cgi",
-    "Tomcat 11": "https://tomcat.apache.org/tomcat-11.0-doc/index.html",
     "Tomcat 9 Changelog": "https://tomcat.apache.org/tomcat-9.0-doc/changelog.html",
     "Tomcat 11 Changelog": "https://tomcat.apache.org/tomcat-11.0-doc/changelog.html",
-    "PostgreSQL": "https://www.postgresql.org/docs/release/"
+    "PostgreSQL": "https://www.postgresql.org/docs/release/",
 }
-
 
 
 def get_tomcat9():
     r = requests.get(URLS["Tomcat 9 Changelog"], timeout=20)
     r.raise_for_status()
-    version_match = re.search(r"Version\s+(9\.0\.\d+)",r.text)
-    date_match = re.search(r'<time datetime="([^"]+)">',r.text)    
+    version_match = re.search(r"Version\s+(9\.0\.\d+)", r.text)
+    date_match = re.search(r'<time datetime="([^"]+)">', r.text)
     release_date = datetime.strptime(
-        date_match.group(1),"%Y-%m-%d").strftime("%B %d, %Y").replace(" 0", " ")
+        date_match.group(1), "%Y-%m-%d"
+    ).strftime("%B %d, %Y").replace(" 0", " ")
 
     return {
         "version": version_match.group(1),
-        "release_date": release_date
+        "release_date": release_date,
     }
 
 
 def get_tomcat11():
     r = requests.get(URLS["Tomcat 11 Changelog"], timeout=20)
     r.raise_for_status()
-    version_match = re.search(r"Version\s+(11\.\d+\.\d+)",r.text)
-    date_match = re.search(r'<time datetime="([^"]+)">',r.text)
+    version_match = re.search(r"Version\s+(11\.\d+\.\d+)", r.text)
+    date_match = re.search(r'<time datetime="([^"]+)">', r.text)
     release_date = datetime.strptime(
-        date_match.group(1),"%Y-%m-%d").strftime("%B %d, %Y").replace(" 0", " ")
+        date_match.group(1), "%Y-%m-%d"
+    ).strftime("%B %d, %Y").replace(" 0", " ")
 
     return {
         "version": version_match.group(1),
-        "release_date": release_date
+        "release_date": release_date,
     }
 
 
@@ -95,19 +83,18 @@ def save_json(path, data):
         json.dump(data, f, indent=2)
 
 
-def load_recipients():
-    raw = os.getenv("EMAIL_RECIPIENTS", "")
+def load_recipients(env_var):
+    raw = os.getenv(env_var, "") or os.getenv("EMAIL_RECIPIENTS", "")
     return [e.strip() for e in raw.split(",") if e.strip()]
 
 
-def send_email(html):
-    recipients = load_recipients()
+def send_email(html, recipients, subject):
     if not recipients:
-        print("No recipients configured.")
-        return
+        print(f"No recipients configured for: {subject}")
+        return False
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Version Update Summary – PostgreSQL and Apache Tomcat"
+    msg["Subject"] = subject
     msg["From"] = EMAIL_USER
     msg["To"] = ", ".join(recipients)
     msg.attach(MIMEText(html, "html"))
@@ -115,7 +102,10 @@ def send_email(html):
     with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
         smtp.starttls()
         smtp.login(EMAIL_USER, EMAIL_PASS)
-        smtp.sendmail(EMAIL_USER,recipients,msg.as_string())
+        smtp.sendmail(EMAIL_USER, recipients, msg.as_string())
+
+    print(f"Email sent: {subject}")
+    return True
 
 
 def update_tomcat_component(component, version, release_date):
@@ -124,7 +114,7 @@ def update_tomcat_component(component, version, release_date):
     if component["latestComponentVersion"] != version:
         component["latestComponentVersion"] = version
         changed = True
-        
+
     if component.get("releaseDate") != release_date:
         component["releaseDate"] = release_date
         changed = True
@@ -150,9 +140,6 @@ def process():
     jdk8 = load_json(JDK8_FILE)
     jdk21 = load_json(JDK21_FILE)
 
-    original8 = deepcopy(jdk8)
-    original21 = deepcopy(jdk21)
-
     postgres = get_postgres()
 
     latest = {
@@ -161,35 +148,54 @@ def process():
         "PostgreSQL": postgres,
     }
 
-    changed = False
+    changed_jdk8 = False
+    changed_jdk21 = False
 
-    # JDK 8 Components
     for c in jdk8["components"]:
         if c["componentName"] == "Apache Tomcat":
-            changed |= update_tomcat_component(c,latest["Tomcat 9"]["version"],latest["Tomcat 9"]["release_date"])
-
+            changed_jdk8 |= update_tomcat_component(
+                c, latest["Tomcat 9"]["version"], latest["Tomcat 9"]["release_date"]
+            )
         elif c["componentName"] == "PostgreSQL":
-            changed |= update_postgres_component(c,postgres["version"],postgres["release_date"])
+            changed_jdk8 |= update_postgres_component(
+                c, postgres["version"], postgres["release_date"]
+            )
 
-    # JDK 21 Components
     for c in jdk21["components"]:
         if c["componentName"] == "Apache Tomcat":
-            changed |= update_tomcat_component(c,latest["Tomcat 11"]["version"],latest["Tomcat 11"]["release_date"])
-
+            changed_jdk21 |= update_tomcat_component(
+                c, latest["Tomcat 11"]["version"], latest["Tomcat 11"]["release_date"]
+            )
         elif c["componentName"] == "PostgreSQL":
-            changed |= update_postgres_component(c,postgres["version"],postgres["release_date"])
+            changed_jdk21 |= update_postgres_component(
+                c, postgres["version"], postgres["release_date"]
+            )
 
-    if not changed:
+    if not changed_jdk8 and not changed_jdk21:
         print("No version changes detected.")
         return
 
-    html = build_email(jdk8, jdk21)
-    send_email(html)
+    if changed_jdk8:
+        recipients = load_recipients(RECIPIENTS_JDK8_ENV)
+        html = build_email_jdk8(jdk8)
+        send_email(
+            html,
+            recipients,
+            "Version Update Summary – JDK8 (Tomcat / PostgreSQL)",
+        )
+        save_json(JDK8_FILE, jdk8)
 
-    save_json(JDK8_FILE, jdk8)
-    save_json(JDK21_FILE, jdk21)
+    if changed_jdk21:
+        recipients = load_recipients(RECIPIENTS_JDK21_ENV)
+        html = build_email_jdk21(jdk21)
+        send_email(
+            html,
+            recipients,
+            "Version Update Summary – JDK21 (Tomcat / PostgreSQL)",
+        )
+        save_json(JDK21_FILE, jdk21)
 
-    print("Email sent and JSON updated.")
+    print("Done.")
 
 
 if __name__ == "__main__":
