@@ -41,7 +41,7 @@ URLS = {
 def get_tomcat9():
     r = requests.get(URLS["Tomcat 9 Changelog"], timeout=20)
     r.raise_for_status()
-    version_match = re.search(r"Version\s+(9\.0\.\d+)", r.text)
+    version_match = re.search(r"Version\s+(9\.\d+\.\d+)", r.text)
     date_match = re.search(r'<time datetime="([^"]+)">', r.text)
     release_date = datetime.strptime(
         date_match.group(1), "%Y-%m-%d"
@@ -93,10 +93,8 @@ def save_json(path, data):
         json.dump(data, f, indent=2)
 
 
-def load_recipients(env_var, fallback_env=None):
+def load_recipients(env_var):
     raw = os.getenv(env_var, "")
-    if not raw.strip() and fallback_env:
-        raw = os.getenv(fallback_env, "")
     return [e.strip() for e in raw.split(",") if e.strip()]
 
 
@@ -162,7 +160,6 @@ def process():
     latest = {
         "Tomcat 9": get_tomcat9(),
         "Tomcat 11": get_tomcat11(),
-        "PostgreSQL": postgres,
     }
 
     changed_jdk8 = False
@@ -193,7 +190,7 @@ def process():
         return
 
     if changed_jdk8:
-        to_list = load_recipients(RECIPIENTS_JDK8_ENV, "EMAIL_RECIPIENTS")
+        to_list = load_recipients(RECIPIENTS_JDK8_ENV)
         cc_list = load_recipients(CC_RECIPIENTS_JDK8_ENV)
         html = build_email_jdk8(jdk8)
         send_email(
@@ -205,7 +202,7 @@ def process():
         save_json(JDK8_FILE, jdk8)
 
     if changed_jdk21:
-        to_list = load_recipients(RECIPIENTS_JDK21_ENV, "EMAIL_RECIPIENTS")
+        to_list = load_recipients(RECIPIENTS_JDK21_ENV)
         cc_list = load_recipients(CC_RECIPIENTS_JDK21_ENV)
         html = build_email_jdk21(jdk21)
         send_email(
