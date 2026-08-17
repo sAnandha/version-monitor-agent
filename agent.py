@@ -1,4 +1,3 @@
-
 """ 
 This is the Python Based Agent allows to Compare 
 the Latest Available version and Previous Version 
@@ -37,7 +36,6 @@ URLS = {
     "PostgreSQL": "https://www.postgresql.org/docs/release/",
 }
 
-
 def get_tomcat9():
     r = requests.get(URLS["Tomcat 9 Changelog"], timeout=20)
     r.raise_for_status()
@@ -51,7 +49,6 @@ def get_tomcat9():
         "version": version_match.group(1),
         "release_date": release_date,
     }
-
 
 def get_tomcat11():
     r = requests.get(URLS["Tomcat 11 Changelog"], timeout=20)
@@ -67,36 +64,81 @@ def get_tomcat11():
         "release_date": release_date,
     }
 
+def parse_postgres_versions(html_text):
+    """Extract individual version strings from the PostgreSQL release banner."""
+    m = re.search(r"PostgreSQL\s+(.+?)\s*Released!", html_text, re.I | re.S)
+    if not m:
+        return []
 
-def get_postgres():
-    """Fetch latest release from the banner, e.g. 'June 4, 2026: PostgreSQL 19 Beta 1 Released!'"""
+    raw = re.sub(r"<[^>]+>", "", m.group(1))
+    raw = raw.replace(" and ", ", ")
+    return [p.strip() for p in raw.split(",") if p.strip()]
+
+
+def postgres_version_key(version_str):
+    """
+    Comparable tuple where higher values mean newer releases.
+    Ordering: 20.3 > 20.0 > 20 Beta 5 > 19.2 > 19 Beta 3
+    """
+    v = version_str.replace("PostgreSQL", "").strip()
+
+    beta = re.match(r"^(\d+)\s+Beta\s+(\d+)$", v, re.I)
+    if beta:
+        return (int(beta.group(1)), 0, int(beta.group(2)))
+
+    final = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?$", v)
+    if final:
+        return (int(final.group(1)), 1, int(final.group(2)), int(final.group(3) or 0))
+
+    major_only = re.match(r"^(\d+)$", v)
+    if major_only:
+        return (int(major_only.group(1)), 1, 0, 0)
+
+    return (0, 0, 0)
+
+
+def format_postgres_version(version_str):
+    v = version_str.replace("PostgreSQL", "").strip()
+    return f"PostgreSQL {v}"
+
+
+def fetch_postgres_banner():
     r = requests.get(URLS["PostgreSQL"], timeout=20)
     r.raise_for_status()
-    patterns = [
-        r"([A-Za-z]+\s+\d{1,2},\s+\d{4}):\s*<a[^>]*>(PostgreSQL\s+.+?)\s*Released!</a>",
-        r"([A-Za-z]+\s+\d{1,2},\s+\d{4}):\s*(PostgreSQL\s+.+?)\s*Released!",
-    ]
-    for pattern in patterns:
-        m = re.search(pattern, r.text)
-        if m:
-            return {"version": m.group(2).strip(), "release_date": m.group(1).strip()}
-    return {"version": "Unknown", "release_date": "Unknown"}
+    date_match = re.search(
+        r"([A-Za-z]+\s+\d{1,2},\s+\d{4}):\s*.*?PostgreSQL\s+.+?\s*Released!",
+        r.text,
+        re.I | re.S,
+    )
+    release_date = date_match.group(1).strip() if date_match else "Unknown"
+    return r.text, release_date
 
+
+def resolve_postgres_version(html_text, release_date, stored_version=None):
+    """Pick the global highest banner version; update only if newer than stored."""
+    all_versions = parse_postgres_versions(html_text)
+    if not all_versions:
+        return {"version": stored_version or "Unknown", "release_date": release_date}
+
+    highest = max(all_versions, key=postgres_version_key)
+    highest_fmt = format_postgres_version(highest)
+
+    if stored_version and postgres_version_key(highest) <= postgres_version_key(stored_version):
+        return {"version": stored_version, "release_date": release_date}
+
+    return {"version": highest_fmt, "release_date": release_date}
 
 def load_json(path):
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-
 def save_json(path, data):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
-
 def load_recipients(env_var):
     raw = os.getenv(env_var, "")
     return [e.strip() for e in raw.split(",") if e.strip()]
-
 
 def send_email(html, to_list, cc_list, subject):
     if not to_list:
@@ -122,7 +164,6 @@ def send_email(html, to_list, cc_list, subject):
     print(f"Email sent: {subject}")
     return True
 
-
 def update_tomcat_component(component, version, release_date):
     changed = False
 
@@ -135,7 +176,6 @@ def update_tomcat_component(component, version, release_date):
         changed = True
 
     return changed
-
 
 def update_postgres_component(component, version, release_date):
     changed = False
@@ -150,12 +190,11 @@ def update_postgres_component(component, version, release_date):
 
     return changed
 
-
 def process():
     jdk8 = load_json(JDK8_FILE)
     jdk21 = load_json(JDK21_FILE)
 
-    postgres = get_postgres()
+    pg_html, pg_date = fetch_postgres_banner()
 
     latest = {
         "Tomcat 9": get_tomcat9(),
@@ -167,23 +206,17 @@ def process():
 
     for c in jdk8["components"]:
         if c["componentName"] == "Apache Tomcat":
-            changed_jdk8 |= update_tomcat_component(
-                c, latest["Tomcat 9"]["version"], latest["Tomcat 9"]["release_date"]
-            )
+            changed_jdk8 |= update_tomcat_component(c, latest["Tomcat 9"]["version"], latest["Tomcat 9"]["release_date"])
         elif c["componentName"] == "PostgreSQL":
-            changed_jdk8 |= update_postgres_component(
-                c, postgres["version"], postgres["release_date"]
-            )
+            postgres = resolve_postgres_version(pg_html, pg_date, c["latestComponentVersion"])
+            changed_jdk8 |= update_postgres_component(c, postgres["version"], postgres["release_date"])
 
     for c in jdk21["components"]:
         if c["componentName"] == "Apache Tomcat":
-            changed_jdk21 |= update_tomcat_component(
-                c, latest["Tomcat 11"]["version"], latest["Tomcat 11"]["release_date"]
-            )
+            changed_jdk21 |= update_tomcat_component(c, latest["Tomcat 11"]["version"], latest["Tomcat 11"]["release_date"])
         elif c["componentName"] == "PostgreSQL":
-            changed_jdk21 |= update_postgres_component(
-                c, postgres["version"], postgres["release_date"]
-            )
+            postgres = resolve_postgres_version(pg_html, pg_date, c["latestComponentVersion"])
+            changed_jdk21 |= update_postgres_component(c, postgres["version"], postgres["release_date"])
 
     if not changed_jdk8 and not changed_jdk21:
         print("No version changes detected.")
@@ -193,28 +226,17 @@ def process():
         to_list = load_recipients(RECIPIENTS_JDK8_ENV)
         cc_list = load_recipients(CC_RECIPIENTS_JDK8_ENV)
         html = build_email_jdk8(jdk8)
-        send_email(
-            html,
-            to_list,
-            cc_list,
-            "Version Update Summary – JDK8 (Tomcat / PostgreSQL)",
-        )
+        send_email(html,to_list,cc_list,"Version Update Summary – JDK8 (Tomcat / PostgreSQL)",)
         save_json(JDK8_FILE, jdk8)
 
     if changed_jdk21:
         to_list = load_recipients(RECIPIENTS_JDK21_ENV)
         cc_list = load_recipients(CC_RECIPIENTS_JDK21_ENV)
         html = build_email_jdk21(jdk21)
-        send_email(
-            html,
-            to_list,
-            cc_list,
-            "Version Update Summary – JDK21 (Tomcat / PostgreSQL)",
-        )
+        send_email(html,to_list,cc_list,"Version Update Summary – JDK21 (Tomcat / PostgreSQL)",)
         save_json(JDK21_FILE, jdk21)
 
     print("Done.")
-
 
 if __name__ == "__main__":
     process()
