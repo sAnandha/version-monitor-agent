@@ -21,8 +21,8 @@
       },
       "latestComponentVersion": "9.0.121",
       "releaseDate": "August 12, 2026",
-      "currentComponentVersion": "9.0.118",
-      "comments": "Will discuss with Team for version upgrade."
+      "currentComponentVersion": "To Be Discuss",
+      "comments": "Will discuss with Team for version upgrade"
     },
     {
       "componentName": "PostgreSQL",
@@ -32,9 +32,10 @@
       },
       "latestComponentVersion": "PostgreSQL 18.6",
       "lastMajorVersion": "18.6",
+      "latestBetaVersion": "19 Beta 3",
       "releaseDate": "August 13, 2026",
-      "currentComponentVersion": "18.4",
-      "comments": "Upgrade to v18.4 in progress."
+      "currentComponentVersion": "To Be Discuss",
+      "comments": "Will discuss with Team for version upgrade"
     }
   ]
 }
