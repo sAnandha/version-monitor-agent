@@ -41,9 +41,7 @@ def get_tomcat9():
     r.raise_for_status()
     version_match = re.search(r"Version\s+(9\.\d+\.\d+)", r.text)
     date_match = re.search(r'<time datetime="([^"]+)">', r.text)
-    release_date = datetime.strptime(
-        date_match.group(1), "%Y-%m-%d"
-    ).strftime("%B %d, %Y").replace(" 0", " ")
+    release_date = datetime.strptime(date_match.group(1), "%Y-%m-%d").strftime("%B %d, %Y").replace(" 0", " ")
 
     return {
         "version": version_match.group(1),
@@ -55,9 +53,7 @@ def get_tomcat11():
     r.raise_for_status()
     version_match = re.search(r"Version\s+(11\.\d+\.\d+)", r.text)
     date_match = re.search(r'<time datetime="([^"]+)">', r.text)
-    release_date = datetime.strptime(
-        date_match.group(1), "%Y-%m-%d"
-    ).strftime("%B %d, %Y").replace(" 0", " ")
+    release_date = datetime.strptime(date_match.group(1), "%Y-%m-%d").strftime("%B %d, %Y").replace(" 0", " ")
 
     return {
         "version": version_match.group(1),
@@ -66,7 +62,8 @@ def get_tomcat11():
 
 def parse_postgres_versions(html_text):
     """Extract individual version strings from the PostgreSQL release banner."""
-    m = re.search(r"PostgreSQL\s+(.+?)\s*Released!", html_text, re.I | re.S)
+    m = re.search(r"[A-Za-z]+\s+\d{1,2},\s+\d{4}:\s*(?:<[^>]*>)*\s*PostgreSQL\s+(.+?)\s*Released!",
+        html_text,re.I | re.S,)
     if not m:
         return []
 
@@ -74,14 +71,12 @@ def parse_postgres_versions(html_text):
     raw = raw.replace(" and ", ", ")
     return [p.strip() for p in raw.split(",") if p.strip()]
 
-
 def postgres_version_key(version_str):
     """
     Comparable tuple where higher values mean newer releases.
     Ordering: 20.3 > 20.0 > 20 Beta 5 > 19.2 > 19 Beta 3
     """
     v = version_str.replace("PostgreSQL", "").strip()
-
     beta = re.match(r"^(\d+)\s+Beta\s+(\d+)$", v, re.I)
     if beta:
         return (int(beta.group(1)), 0, int(beta.group(2)))
@@ -96,37 +91,87 @@ def postgres_version_key(version_str):
 
     return (0, 0, 0)
 
-
 def format_postgres_version(version_str):
     v = version_str.replace("PostgreSQL", "").strip()
     return f"PostgreSQL {v}"
+
+def is_beta_version(version_str):
+    v = version_str.replace("PostgreSQL", "").strip()
+    return bool(re.match(r"^\d+\s+Beta\s+\d+$", v, re.I))
+
+def get_last_major_version(component):
+    if component.get("lastMajorVersion"):
+        return component["lastMajorVersion"]
+    stored = component["latestComponentVersion"]
+    if not is_beta_version(stored):
+        return stored.replace("PostgreSQL", "").strip()
+    return component.get("currentComponentVersion", "0.0")
+
+
+def pick_postgres_candidate(all_versions, last_major_version):
+    """Prefer major when both types exist and major exceeds lastMajorVersion."""
+    finals = [v for v in all_versions if not is_beta_version(v)]
+    betas = [v for v in all_versions if is_beta_version(v)]
+    last_major_key = postgres_version_key(last_major_version)
+
+    if finals and betas:
+        highest_final = max(finals, key=postgres_version_key)
+        highest_beta = max(betas, key=postgres_version_key)
+        if postgres_version_key(highest_final) > last_major_key:
+            return highest_final, "both_major"
+        return highest_beta, "both_beta"
+
+    if finals:
+        return max(finals, key=postgres_version_key), "final_only"
+    if betas:
+        return max(betas, key=postgres_version_key), "beta_only"
+    return None, None
+
+
+def should_update_postgres(stored_version, candidate, kind, last_major_version):
+    candidate_fmt = format_postgres_version(candidate)
+    if stored_version == candidate_fmt:
+        return False
+
+    candidate_key = postgres_version_key(candidate)
+    stored_key = postgres_version_key(stored_version) if stored_version else (0, 0, 0)
+    last_major_key = postgres_version_key(last_major_version)
+
+    if kind == "both_major":
+        return True
+
+    if kind == "final_only":
+        if stored_version and is_beta_version(stored_version):
+            return candidate_key > last_major_key
+        return candidate_key > stored_key
+
+    return candidate_key > stored_key
 
 
 def fetch_postgres_banner():
     r = requests.get(URLS["PostgreSQL"], timeout=20)
     r.raise_for_status()
-    date_match = re.search(
-        r"([A-Za-z]+\s+\d{1,2},\s+\d{4}):\s*.*?PostgreSQL\s+.+?\s*Released!",
-        r.text,
-        re.I | re.S,
-    )
+    date_match = re.search(r"([A-Za-z]+\s+\d{1,2},\s+\d{4}):\s*.*?PostgreSQL\s+.+?\s*Released!",r.text,re.I | re.S,)
     release_date = date_match.group(1).strip() if date_match else "Unknown"
     return r.text, release_date
 
 
-def resolve_postgres_version(html_text, release_date, stored_version=None):
-    """Pick the global highest banner version; update only if newer than stored."""
+def resolve_postgres_version(html_text, release_date, stored_version=None, last_major_version=None):
+    """Pick version using major/beta rules and dynamic lastMajorVersion floor."""
     all_versions = parse_postgres_versions(html_text)
     if not all_versions:
         return {"version": stored_version or "Unknown", "release_date": release_date}
 
-    highest = max(all_versions, key=postgres_version_key)
-    highest_fmt = format_postgres_version(highest)
+    last_major = last_major_version or stored_version or "0.0"
+    candidate, kind = pick_postgres_candidate(all_versions, last_major)
+    if not candidate:
+        return {"version": stored_version or "Unknown", "release_date": release_date}
 
-    if stored_version and postgres_version_key(highest) <= postgres_version_key(stored_version):
-        return {"version": stored_version, "release_date": release_date}
+    candidate_fmt = format_postgres_version(candidate)
+    if should_update_postgres(stored_version, candidate, kind, last_major):
+        return {"version": candidate_fmt, "release_date": release_date}
 
-    return {"version": highest_fmt, "release_date": release_date}
+    return {"version": stored_version, "release_date": release_date}
 
 def load_json(path):
     with open(path, "r", encoding="utf-8") as f:
@@ -184,6 +229,12 @@ def update_postgres_component(component, version, release_date):
         component["latestComponentVersion"] = version
         changed = True
 
+    if not is_beta_version(version):
+        bare = version.replace("PostgreSQL", "").strip()
+        if component.get("lastMajorVersion") != bare:
+            component["lastMajorVersion"] = bare
+            changed = True
+
     if component.get("releaseDate") != release_date:
         component["releaseDate"] = release_date
         changed = True
@@ -208,14 +259,14 @@ def process():
         if c["componentName"] == "Apache Tomcat":
             changed_jdk8 |= update_tomcat_component(c, latest["Tomcat 9"]["version"], latest["Tomcat 9"]["release_date"])
         elif c["componentName"] == "PostgreSQL":
-            postgres = resolve_postgres_version(pg_html, pg_date, c["latestComponentVersion"])
+            postgres = resolve_postgres_version(pg_html,pg_date,c["latestComponentVersion"],get_last_major_version(c),)
             changed_jdk8 |= update_postgres_component(c, postgres["version"], postgres["release_date"])
 
     for c in jdk21["components"]:
         if c["componentName"] == "Apache Tomcat":
             changed_jdk21 |= update_tomcat_component(c, latest["Tomcat 11"]["version"], latest["Tomcat 11"]["release_date"])
         elif c["componentName"] == "PostgreSQL":
-            postgres = resolve_postgres_version(pg_html, pg_date, c["latestComponentVersion"])
+            postgres = resolve_postgres_version(pg_html,pg_date,c["latestComponentVersion"],get_last_major_version(c),)
             changed_jdk21 |= update_postgres_component(c, postgres["version"], postgres["release_date"])
 
     if not changed_jdk8 and not changed_jdk21:
