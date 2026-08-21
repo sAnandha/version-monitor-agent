@@ -32,7 +32,7 @@
       "lastMajorVersion": "18.6",
       "latestBetaVersion": "19 Beta 3",
       "releaseDate": "August 13, 2026",
-      "comments": "We have already upgraded to PostgreSQL v18.4 in AWL21-JDK branch. Need to analyze the impact of newly released PostgreSQL v18.6 on DSR and see if we need to upgrade this for JDK21."
+      "comments": "Need to analyse the impact of latest released version on DSR. Then will discuss with Team for version upgrade."
     }
   ]
 }
