@@ -32,61 +32,279 @@ CC_RECIPIENTS_JDK21_ENV = "EMAIL_CC_RECIPIENTS_JDK21"
 
 URLS = {
     "Tomcat 9 Changelog": "https://tomcat.apache.org/tomcat-9.0-doc/changelog.html",
+    "Tomcat 9 Download": "https://tomcat.apache.org/download-90.cgi",
     "Tomcat 11 Changelog": "https://tomcat.apache.org/tomcat-11.0-doc/changelog.html",
+    "Tomcat 11 Download": "https://tomcat.apache.org/download-110.cgi",
+    "Tomcat Home": "https://tomcat.apache.org/",
     "PostgreSQL": "https://www.postgresql.org/docs/release/",
 }
 
-def get_tomcat9():
-    try:
-        r = requests.get(URLS["Tomcat 9 Changelog"], timeout=20)
-        r.raise_for_status()
-    except requests.exceptions.RequestException as exc:
-        print(f"Tomcat 9 fetch failed: {exc}")
+_tomcat_homepage_html = None
+
+def tomcat_version_key(version_str):
+    parts = version_str.strip().split(".")
+    return tuple(int(p) for p in parts)
+
+def _format_release_date(date_str):
+    release_date = datetime.strptime(date_str, "%Y-%m-%d")
+    return release_date.strftime("%B %d, %Y").replace(" 0", " ")
+
+def _parse_flexible_release_date(raw):
+    value = raw.strip()
+    for fmt in (
+        "%Y-%m-%d",
+        "%B %d, %Y",
+        "%b %d, %Y",
+        "%d %B %Y",
+        "%d %b %Y",
+    ):
+        try:
+            return datetime.strptime(value, fmt).strftime("%B %d, %Y").replace(" 0", " ")
+        except ValueError:
+            continue
+    return None
+
+def get_tomcat_date_from_changelog_body(html_text, version):
+    """Find a release date for a specific version in changelog section headers."""
+    if not html_text:
         return None
 
-    version_match = re.search(r"Version\s+(9\.\d+\.\d+)", r.text)
-    date_match = re.search(r'<time datetime="([^"]+)">', r.text)
+    escaped = re.escape(version)
+    patterns = [
+        rf"(\d{{4}}-\d{{2}}-\d{{2}})\s+Tomcat\s+{escaped}\b",
+        rf"<h3[^>]*>\s*(\d{{4}}-\d{{2}}-\d{{2}})\s+Tomcat\s+{escaped}\b",
+        rf"Tomcat\s+{escaped}.*?<time datetime=\"(\d{{4}}-\d{{2}}-\d{{2}})\">",
+    ]
 
+    for pattern in patterns:
+        match = re.search(pattern, html_text, re.I | re.S)
+        if not match:
+            continue
+        try:
+            return _format_release_date(match.group(1))
+        except ValueError:
+            continue
+    return None
+
+def get_tomcat_date_from_homepage(html_text, version):
+    """Backup: find a release date for a version on the Tomcat homepage."""
+    if not html_text:
+        return None
+
+    escaped = re.escape(version)
+    patterns = [
+        rf"<span[^>]*>(\d{{4}}-\d{{2}}-\d{{2}})</span>\s*Tomcat\s+{escaped}\b",
+        rf"(\d{{4}}-\d{{2}}-\d{{2}})</span>\s*Tomcat\s+{escaped}\b",
+        rf"(\d{{4}}-\d{{2}}-\d{{2}})[^<]{{0,120}}{escaped}",
+        rf"{escaped}[^<]{{0,120}}(\d{{4}}-\d{{2}}-\d{{2}})",
+        rf"(\d{{1,2}}\s+[A-Za-z]+\s+\d{{4}})[^<]{{0,120}}{escaped}",
+        rf"{escaped}[^<]{{0,120}}(\d{{1,2}}\s+[A-Za-z]+\s+\d{{4}})",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, html_text, re.I | re.S)
+        if not match:
+            continue
+        parsed = _parse_flexible_release_date(match.group(1))
+        if parsed:
+            return parsed
+    return None
+
+def resolve_tomcat_release_date(
+    version,
+    changelog_html,
+    homepage_html,
+    changelog_header_date=None,
+    stored_release_date=None,
+    label="Tomcat",
+):
+    if changelog_header_date:
+        return changelog_header_date
+
+    body_date = get_tomcat_date_from_changelog_body(changelog_html, version)
+    if body_date:
+        print(f"{label} {version}: release date from changelog body.")
+        return body_date
+
+    home_date = get_tomcat_date_from_homepage(homepage_html, version)
+    if home_date:
+        print(f"{label} {version}: release date from Tomcat homepage.")
+        return home_date
+
+    if stored_release_date:
+        print(f"{label} {version}: release date unknown; keeping stored date.")
+        return stored_release_date
+
+    print(f"{label} {version}: release date unknown.")
+    return "Unknown"
+
+def get_tomcat_from_changelog(html_text, major_prefix):
+    """Parse latest version and release date from the changelog header block."""
+    if not html_text:
+        return None
+
+    block = re.search(
+        rf"Version\s+({major_prefix}\.\d+\.\d+).*?"
+        r'<time datetime="(\d{4}-\d{2}-\d{2})">',
+        html_text,
+        re.I | re.S,
+    )
+    if block:
+        try:
+            return {
+                "version": block.group(1),
+                "release_date": _format_release_date(block.group(2)),
+            }
+        except ValueError:
+            pass
+
+    version_match = re.search(rf"Version\s+({major_prefix}\.\d+\.\d+)", html_text)
+    date_match = re.search(r'<time datetime="([^"]+)">', html_text)
     if not version_match or not date_match:
-        print("Tomcat 9 version/date pattern not found.")
         return None
 
     try:
-        release_date = datetime.strptime(date_match.group(1), "%Y-%m-%d")
+        return {
+            "version": version_match.group(1),
+            "release_date": _format_release_date(date_match.group(1)),
+        }
     except ValueError:
-        print("Tomcat 9 invalid date format.")
         return None
 
-    return {
-        "version": version_match.group(1),
-        "release_date": release_date.strftime("%B %d, %Y").replace(" 0", " "),
-    }
+def get_tomcat_from_download(html_text, major_prefix):
+    """Parse the highest advertised version from the Tomcat download page."""
+    if not html_text:
+        return None
 
-def get_tomcat11():
+    heading = re.search(
+        rf"<h3[^>]*>\s*({major_prefix}\.\d+\.\d+)\s*</h3>",
+        html_text,
+        re.I,
+    )
+    if heading:
+        return heading.group(1)
+
+    versions = re.findall(rf"\b({major_prefix}\.\d+\.\d+)\b", html_text)
+    if not versions:
+        return None
+
+    return max(versions, key=tomcat_version_key)
+
+def resolve_tomcat_version(
+    changelog_result,
+    download_version,
+    label,
+    changelog_html=None,
+    homepage_html=None,
+    stored_release_date=None,
+):
+    """Prefer the newer version between changelog and download page."""
+    if not changelog_result and not download_version:
+        print(f"{label} version could not be resolved.")
+        return None
+
+    if changelog_result and not download_version:
+        return changelog_result
+
+    if download_version and not changelog_result:
+        print(
+            f"{label}: using download page version {download_version} "
+            "(changelog unavailable)."
+        )
+        return {
+            "version": download_version,
+            "release_date": resolve_tomcat_release_date(
+                download_version,
+                changelog_html,
+                homepage_html,
+                stored_release_date=stored_release_date,
+                label=label,
+            ),
+        }
+
+    changelog_version = changelog_result["version"]
+    if tomcat_version_key(download_version) > tomcat_version_key(changelog_version):
+        print(
+            f"{label}: download page has newer version {download_version} "
+            f"(changelog still {changelog_version})."
+        )
+        header_date = (
+            changelog_result["release_date"]
+            if changelog_version == download_version
+            else None
+        )
+        return {
+            "version": download_version,
+            "release_date": resolve_tomcat_release_date(
+                download_version,
+                changelog_html,
+                homepage_html,
+                changelog_header_date=header_date,
+                stored_release_date=stored_release_date,
+                label=label,
+            ),
+        }
+
+    return changelog_result
+
+def _fetch_tomcat_page(url, label):
     try:
-        r = requests.get(URLS["Tomcat 11 Changelog"], timeout=20)
+        r = requests.get(url, timeout=20)
         r.raise_for_status()
+        return r.text
     except requests.exceptions.RequestException as exc:
-        print(f"Tomcat 11 fetch failed: {exc}")
+        print(f"{label} fetch failed: {exc}")
         return None
 
-    version_match = re.search(r"Version\s+(11\.\d+\.\d+)", r.text)
-    date_match = re.search(r'<time datetime="([^"]+)">', r.text)
+def _get_tomcat_homepage_html():
+    global _tomcat_homepage_html
+    if _tomcat_homepage_html is None:
+        _tomcat_homepage_html = _fetch_tomcat_page(
+            URLS["Tomcat Home"],
+            "Tomcat homepage",
+        )
+    return _tomcat_homepage_html
 
-    if not version_match or not date_match:
-        print("Tomcat 11 version/date pattern not found.")
-        return None
+def _get_tomcat(major_prefix, changelog_url, download_url, label, stored_release_date=None):
+    changelog_html = _fetch_tomcat_page(changelog_url, f"{label} changelog")
+    download_html = _fetch_tomcat_page(download_url, f"{label} download page")
+    homepage_html = _get_tomcat_homepage_html()
 
-    try:
-        release_date = datetime.strptime(date_match.group(1), "%Y-%m-%d")
-    except ValueError:
-        print("Tomcat 11 invalid date format.")
-        return None
+    changelog_result = get_tomcat_from_changelog(changelog_html, major_prefix)
+    download_version = get_tomcat_from_download(download_html, major_prefix)
 
-    return {
-        "version": version_match.group(1),
-        "release_date": release_date.strftime("%B %d, %Y").replace(" 0", " "),
-    }
+    return resolve_tomcat_version(
+        changelog_result,
+        download_version,
+        label,
+        changelog_html=changelog_html,
+        homepage_html=homepage_html,
+        stored_release_date=stored_release_date,
+    )
+
+def get_tomcat9(stored_release_date=None):
+    return _get_tomcat(
+        "9",
+        URLS["Tomcat 9 Changelog"],
+        URLS["Tomcat 9 Download"],
+        "Tomcat 9",
+        stored_release_date=stored_release_date,
+    )
+
+def get_tomcat11(stored_release_date=None):
+    return _get_tomcat(
+        "11",
+        URLS["Tomcat 11 Changelog"],
+        URLS["Tomcat 11 Download"],
+        "Tomcat 11",
+        stored_release_date=stored_release_date,
+    )
+
+def _find_component(components, name):
+    for component in components:
+        if component["componentName"] == name:
+            return component
+    return None
 
 def parse_postgres_versions(html_text):
     """Extract individual version strings from the PostgreSQL release banner."""
@@ -358,9 +576,16 @@ def process():
         print(f"PostgreSQL fetch failed: {exc}")
         pg_html, pg_date = None, "Unknown"
 
+    tomcat8 = _find_component(jdk8["components"], "Apache Tomcat")
+    tomcat21 = _find_component(jdk21["components"], "Apache Tomcat")
+
     latest = {
-        "Tomcat 9": get_tomcat9(),
-        "Tomcat 11": get_tomcat11(),
+        "Tomcat 9": get_tomcat9(
+            stored_release_date=tomcat8.get("releaseDate") if tomcat8 else None,
+        ),
+        "Tomcat 11": get_tomcat11(
+            stored_release_date=tomcat21.get("releaseDate") if tomcat21 else None,
+        ),
     }
 
     changed_jdk8 = False
