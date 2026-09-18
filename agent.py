@@ -87,18 +87,35 @@ def get_tomcat_date_from_changelog_body(html_text, version):
     return None
 
 def get_tomcat_date_from_homepage(html_text, version):
-    """Backup: find a release date for a version on the Tomcat homepage."""
+    """Find the release date for a version on the Tomcat homepage."""
     if not html_text:
         return None
 
     escaped = re.escape(version)
+    release_block = re.search(
+        rf'<h3[^>]*\bid="Tomcat_{escaped}_Released"[^>]*>(.*?)</h3>',
+        html_text,
+        re.I | re.S,
+    )
+    if release_block:
+        span_date = re.search(
+            r'<span[^>]*>(\d{4}-\d{2}-\d{2})</span>',
+            release_block.group(1),
+            re.I,
+        )
+        if span_date:
+            try:
+                return _format_release_date(span_date.group(1))
+            except ValueError:
+                pass
+
     patterns = [
         rf"<span[^>]*>(\d{{4}}-\d{{2}}-\d{{2}})</span>\s*Tomcat\s+{escaped}\b",
         rf"(\d{{4}}-\d{{2}}-\d{{2}})</span>\s*Tomcat\s+{escaped}\b",
+        rf"(\d{{4}}-\d{{2}}-\d{{2}})\s+Tomcat\s+{escaped}\b",
+        rf"Tomcat\s+{escaped}\b[^<]{{0,120}}<span[^>]*>(\d{{4}}-\d{{2}}-\d{{2}})</span>",
         rf"(\d{{4}}-\d{{2}}-\d{{2}})[^<]{{0,120}}{escaped}",
         rf"{escaped}[^<]{{0,120}}(\d{{4}}-\d{{2}}-\d{{2}})",
-        rf"(\d{{1,2}}\s+[A-Za-z]+\s+\d{{4}})[^<]{{0,120}}{escaped}",
-        rf"{escaped}[^<]{{0,120}}(\d{{1,2}}\s+[A-Za-z]+\s+\d{{4}})",
     ]
 
     for pattern in patterns:
@@ -111,25 +128,25 @@ def get_tomcat_date_from_homepage(html_text, version):
     return None
 
 def resolve_tomcat_release_date(
-    version,
-    changelog_html,
-    homepage_html,
-    changelog_header_date=None,
-    stored_release_date=None,
-    label="Tomcat",
-):
-    if changelog_header_date:
-        return changelog_header_date
+    version,changelog_html,homepage_html,changelog_header_date=None,stored_release_date=None,
+    label="Tomcat",):
+    """
+    Resolve release date for a version. Priority (vendor updates homepage first):
+    homepage -> changelog body -> changelog header -> stored JSON -> Unknown """
+
+    home_date = get_tomcat_date_from_homepage(homepage_html, version)
+    if home_date:
+        print(f"{label} {version}: release date from Tomcat homepage.")
+        return home_date
 
     body_date = get_tomcat_date_from_changelog_body(changelog_html, version)
     if body_date:
         print(f"{label} {version}: release date from changelog body.")
         return body_date
 
-    home_date = get_tomcat_date_from_homepage(homepage_html, version)
-    if home_date:
-        print(f"{label} {version}: release date from Tomcat homepage.")
-        return home_date
+    if changelog_header_date:
+        print(f"{label} {version}: release date from changelog header.")
+        return changelog_header_date
 
     if stored_release_date:
         print(f"{label} {version}: release date unknown; keeping stored date.")
@@ -137,6 +154,17 @@ def resolve_tomcat_release_date(
 
     print(f"{label} {version}: release date unknown.")
     return "Unknown"
+
+def _build_tomcat_result(version,changelog_html,homepage_html,changelog_header_date=None,stored_release_date=None,
+    label="Tomcat",):
+    return {
+        "version": version,
+        "release_date": resolve_tomcat_release_date(
+            version,changelog_html,
+            homepage_html,changelog_header_date=changelog_header_date,
+            stored_release_date=stored_release_date,
+            label=label,),
+    }
 
 def get_tomcat_from_changelog(html_text, major_prefix):
     """Parse latest version and release date from the changelog header block."""
@@ -176,11 +204,7 @@ def get_tomcat_from_download(html_text, major_prefix):
     if not html_text:
         return None
 
-    heading = re.search(
-        rf"<h3[^>]*>\s*({major_prefix}\.\d+\.\d+)\s*</h3>",
-        html_text,
-        re.I,
-    )
+    heading = re.search(rf"<h3[^>]*>\s*({major_prefix}\.\d+\.\d+)\s*</h3>",html_text,re.I,)
     if heading:
         return heading.group(1)
 
@@ -191,61 +215,48 @@ def get_tomcat_from_download(html_text, major_prefix):
     return max(versions, key=tomcat_version_key)
 
 def resolve_tomcat_version(
-    changelog_result,
-    download_version,
-    label,
-    changelog_html=None,
-    homepage_html=None,
-    stored_release_date=None,
-):
-    """Prefer the newer version between changelog and download page."""
+    changelog_result,download_version,
+    label,changelog_html=None,homepage_html=None,stored_release_date=None,):
+    """Prefer the newer version between changelog and download; always reconcile date."""
     if not changelog_result and not download_version:
         print(f"{label} version could not be resolved.")
         return None
 
-    if changelog_result and not download_version:
-        return changelog_result
+    versions = []
+    if changelog_result:
+        versions.append(changelog_result["version"])
+    if download_version:
+        versions.append(download_version)
+
+    final_version = max(versions, key=tomcat_version_key)
 
     if download_version and not changelog_result:
         print(
             f"{label}: using download page version {download_version} "
-            "(changelog unavailable)."
-        )
-        return {
-            "version": download_version,
-            "release_date": resolve_tomcat_release_date(
-                download_version,
-                changelog_html,
-                homepage_html,
-                stored_release_date=stored_release_date,
-                label=label,
-            ),
-        }
-
-    changelog_version = changelog_result["version"]
-    if tomcat_version_key(download_version) > tomcat_version_key(changelog_version):
+            "(changelog unavailable).")
+    elif (
+        changelog_result
+        and download_version
+        and tomcat_version_key(download_version)
+        > tomcat_version_key(changelog_result["version"])):
         print(
             f"{label}: download page has newer version {download_version} "
-            f"(changelog still {changelog_version})."
-        )
-        header_date = (
-            changelog_result["release_date"]
-            if changelog_version == download_version
-            else None
-        )
-        return {
-            "version": download_version,
-            "release_date": resolve_tomcat_release_date(
-                download_version,
-                changelog_html,
-                homepage_html,
-                changelog_header_date=header_date,
-                stored_release_date=stored_release_date,
-                label=label,
-            ),
-        }
+            f"(changelog still {changelog_result['version']}).")
 
-    return changelog_result
+    changelog_header_date = (
+        changelog_result["release_date"]
+        if changelog_result and changelog_result["version"] == final_version
+        else None
+    )
+
+    return _build_tomcat_result(
+        final_version,
+        changelog_html,
+        homepage_html,
+        changelog_header_date=changelog_header_date,
+        stored_release_date=stored_release_date,
+        label=label,
+    )
 
 def _fetch_tomcat_page(url, label):
     try:
@@ -519,17 +530,16 @@ def update_jdk21_component_status(component):
     return changed
 
 def update_tomcat_component(component, version, release_date):
-    changed = False
+    """Return (notify, updated). Email only when the version changes."""
+    version_changed = component["latestComponentVersion"] != version
+    date_changed = component.get("releaseDate") != release_date
 
-    if component["latestComponentVersion"] != version:
+    if version_changed:
         component["latestComponentVersion"] = version
-        changed = True
-
-    if component.get("releaseDate") != release_date:
+    if date_changed:
         component["releaseDate"] = release_date
-        changed = True
 
-    return changed
+    return version_changed, version_changed or date_changed
 
 def update_postgres_component(component, version, release_date, banner_beta=None):
     changed = False
@@ -588,34 +598,51 @@ def process():
         ),
     }
 
-    changed_jdk8 = False
-    changed_jdk21 = False
+    notify_jdk8 = False
+    notify_jdk21 = False
+    updated_jdk8 = False
+    updated_jdk21 = False
 
     for c in jdk8["components"]:
         component_fetch_ok = False
         if c["componentName"] == "Apache Tomcat":
             if latest["Tomcat 9"] is not None:
-                changed_jdk8 |= update_tomcat_component(
-                    c,latest["Tomcat 9"]["version"],latest["Tomcat 9"]["release_date"],)
+                notify, updated = update_tomcat_component(
+                    c,
+                    latest["Tomcat 9"]["version"],
+                    latest["Tomcat 9"]["release_date"],
+                )
+                notify_jdk8 |= notify
+                updated_jdk8 |= updated
                 component_fetch_ok = True
         elif c["componentName"] == "PostgreSQL" and pg_html:
             postgres = resolve_postgres_version(pg_html,pg_date,c["latestComponentVersion"],
                 get_last_major_version(c),
                 get_latest_beta_version(c),
             )
-            changed_jdk8 |= update_postgres_component(
+            postgres_notify = update_postgres_component(
                 c,postgres["version"],postgres["release_date"],postgres.get("banner_beta"),)
+            notify_jdk8 |= postgres_notify
+            updated_jdk8 |= postgres_notify
             component_fetch_ok = True
 
         if component_fetch_ok:
-            changed_jdk8 |= update_component_status(c, include_current=True)
+            status_changed = update_component_status(c, include_current=True)
+            notify_jdk8 |= status_changed
+            updated_jdk8 |= status_changed
 
     for c in jdk21["components"]:
         component_fetch_ok = False
 
         if c["componentName"] == "Apache Tomcat":
             if latest["Tomcat 11"] is not None:
-                changed_jdk21 |= update_tomcat_component(c,latest["Tomcat 11"]["version"],latest["Tomcat 11"]["release_date"],)
+                notify, updated = update_tomcat_component(
+                    c,
+                    latest["Tomcat 11"]["version"],
+                    latest["Tomcat 11"]["release_date"],
+                )
+                notify_jdk21 |= notify
+                updated_jdk21 |= updated
                 component_fetch_ok = True
         elif c["componentName"] == "PostgreSQL" and pg_html:
             postgres = resolve_postgres_version(
@@ -623,28 +650,37 @@ def process():
                 get_last_major_version(c),
                 get_latest_beta_version(c),
             )
-            changed_jdk21 |= update_postgres_component(c,postgres["version"],postgres["release_date"],postgres.get("banner_beta"),)
+            postgres_notify = update_postgres_component(
+                c,postgres["version"],postgres["release_date"],postgres.get("banner_beta"),)
+            notify_jdk21 |= postgres_notify
+            updated_jdk21 |= postgres_notify
             component_fetch_ok = True
 
         if component_fetch_ok:
-            changed_jdk21 |= update_jdk21_component_status(c)
+            status_changed = update_jdk21_component_status(c)
+            notify_jdk21 |= status_changed
+            updated_jdk21 |= status_changed
 
-    if not changed_jdk8 and not changed_jdk21:
-        print("No version changes detected.")
+    if not updated_jdk8 and not updated_jdk21:
+        print("No changes detected.")
         return
 
-    if changed_jdk8:
+    if notify_jdk8:
         to_list = load_recipients(RECIPIENTS_JDK8_ENV)
         cc_list = load_recipients(CC_RECIPIENTS_JDK8_ENV)
         html = build_email_jdk8(jdk8)
         send_email(html,to_list,cc_list,"Version Update Summary – JDK8 (Tomcat / PostgreSQL)",)
+
+    if updated_jdk8:
         save_json(JDK8_FILE, jdk8)
 
-    if changed_jdk21:
+    if notify_jdk21:
         to_list = load_recipients(RECIPIENTS_JDK21_ENV)
         cc_list = load_recipients(CC_RECIPIENTS_JDK21_ENV)
         html = build_email_jdk21(jdk21)
         send_email(html,to_list,cc_list,"Version Update Summary – JDK21 (Tomcat / PostgreSQL)",)
+
+    if updated_jdk21:
         save_json(JDK21_FILE, jdk21)
 
     print("Done.")
