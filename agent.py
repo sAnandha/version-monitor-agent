@@ -334,7 +334,6 @@ def postgres_version_key(version_str):
     Ordering: 20.3 > 20.0 > 20 Beta 5 > 19.2 > 19 Beta 3
     """
     v = version_str.replace("PostgreSQL", "").strip()
-
     beta = re.match(r"^(\d+)\s+Beta\s+(\d+)$", v, re.I)
     if beta:
         return (int(beta.group(1)), 0, int(beta.group(2)))
@@ -542,39 +541,42 @@ def update_tomcat_component(component, version, release_date):
     return version_changed, version_changed or date_changed
 
 def update_postgres_component(component, version, release_date, banner_beta=None):
-    changed = False
-    old_version = component["latestComponentVersion"]
+    """Return (notify, updated). Email only when latestComponentVersion changes."""
+    version_changed = component["latestComponentVersion"] != version
+    updated = False
 
-    if component["latestComponentVersion"] != version:
+    if version_changed:
         component["latestComponentVersion"] = version
-        changed = True
+        updated = True
 
     if not is_beta_version(version):
         bare = version.replace("PostgreSQL", "").strip()
         if component.get("lastMajorVersion") != bare:
             component["lastMajorVersion"] = bare
-            changed = True
+            updated = True
 
     if is_beta_version(version):
         bare = version.replace("PostgreSQL", "").strip()
         if component.get("latestBetaVersion") != bare:
             component["latestBetaVersion"] = bare
-            changed = True
+            updated = True
 
     if (
-        banner_beta and not is_beta_version(version)
-        and component["latestComponentVersion"] != old_version
+        banner_beta
+        and not is_beta_version(version)
+        and version_changed
         and postgres_version_key(banner_beta)
-        > postgres_version_key(component.get("latestBetaVersion", "0 Beta 0"))):
-        bare_beta = banner_beta.replace("PostgreSQL", "").strip()         
+        > postgres_version_key(component.get("latestBetaVersion", "0 Beta 0"))
+    ):
+        bare_beta = banner_beta.replace("PostgreSQL", "").strip()
         component["latestBetaVersion"] = bare_beta
-        changed = True
+        updated = True
 
     if component.get("releaseDate") != release_date:
         component["releaseDate"] = release_date
-        changed = True
+        updated = True
 
-    return changed
+    return version_changed, updated
 
 def process():
     jdk8 = load_json(JDK8_FILE)
@@ -620,10 +622,14 @@ def process():
                 get_last_major_version(c),
                 get_latest_beta_version(c),
             )
-            postgres_notify = update_postgres_component(
-                c,postgres["version"],postgres["release_date"],postgres.get("banner_beta"),)
-            notify_jdk8 |= postgres_notify
-            updated_jdk8 |= postgres_notify
+            pg_notify, pg_updated = update_postgres_component(
+                c,
+                postgres["version"],
+                postgres["release_date"],
+                postgres.get("banner_beta"),
+            )
+            notify_jdk8 |= pg_notify
+            updated_jdk8 |= pg_updated
             component_fetch_ok = True
 
         if component_fetch_ok:
@@ -650,10 +656,14 @@ def process():
                 get_last_major_version(c),
                 get_latest_beta_version(c),
             )
-            postgres_notify = update_postgres_component(
-                c,postgres["version"],postgres["release_date"],postgres.get("banner_beta"),)
-            notify_jdk21 |= postgres_notify
-            updated_jdk21 |= postgres_notify
+            pg_notify, pg_updated = update_postgres_component(
+                c,
+                postgres["version"],
+                postgres["release_date"],
+                postgres.get("banner_beta"),
+            )
+            notify_jdk21 |= pg_notify
+            updated_jdk21 |= pg_updated
             component_fetch_ok = True
 
         if component_fetch_ok:
