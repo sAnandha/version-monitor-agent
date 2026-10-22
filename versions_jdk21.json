@@ -31,7 +31,7 @@
       "latestComponentVersion": "PostgreSQL 19 Beta 4",
       "lastMajorVersion": "18.6",
       "latestBetaVersion": "19 Beta 4",
-      "releaseDate": "September 24, 2026",
+      "releaseDate": "October 15, 2026",
       "comments": "Need to analyse the impact of latest released version on DSR. Then will discuss with Team for version upgrade."
     }
   ]
