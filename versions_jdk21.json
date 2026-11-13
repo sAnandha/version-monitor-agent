@@ -4,8 +4,8 @@
   "headers": {
     "componentName": "Component Name",
     "dsrVersions": [
-      "DSR 8.0.100",
-      "DSR 9.0.100"
+      "DSR 8.0.46",
+      "DSR 8.0.47"
     ],
     "latestComponentVersion": "Latest Component Version released",
     "releaseDate": "Release Date of the Component Version",
@@ -15,8 +15,8 @@
     {
       "componentName": "Apache Tomcat",
       "dsrVersions": {
-        "DSR 8.0.100": "11.0.24",
-        "DSR 9.0.100": "11.0.24"
+        "DSR 8.0.46": "11.0.27",
+        "DSR 8.0.47": "11.0.24"
       },
       "latestComponentVersion": "11.0.27",
       "releaseDate": "October 12, 2026",
@@ -25,8 +25,8 @@
     {
       "componentName": "PostgreSQL",
       "dsrVersions": {
-        "DSR 8.0.100": "18.4",
-        "DSR 9.0.100": "18.4"
+        "DSR 8.0.46": "18.4",
+        "DSR 8.0.47": "18.4"
       },
       "latestComponentVersion": "PostgreSQL 18.7",
       "lastMajorVersion": "18.7",
