@@ -15,7 +15,7 @@
     {
       "componentName": "Apache Tomcat",
       "dsrVersions": {
-        "DSR 8.0.46": "11.0.27",
+        "DSR 8.0.46": "11.0.29",
         "DSR 8.0.47": "11.0.24"
       },
       "latestComponentVersion": "11.0.29",
@@ -25,7 +25,7 @@
     {
       "componentName": "PostgreSQL",
       "dsrVersions": {
-        "DSR 8.0.46": "18.4",
+        "DSR 8.0.46": "18.7",
         "DSR 8.0.47": "18.4"
       },
       "latestComponentVersion": "PostgreSQL 19",
