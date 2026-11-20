@@ -30,10 +30,10 @@
         "DSR 8.0.43": "18.4",
         "DSR 9.0.26": "18.4"
       },
-      "latestComponentVersion": "PostgreSQL 18.7",
-      "lastMajorVersion": "18.7",
+      "latestComponentVersion": "PostgreSQL 19",
+      "lastMajorVersion": "19",
       "latestBetaVersion": "19 Beta 4",
-      "releaseDate": "November 12, 2026",
+      "releaseDate": "November 19, 2026",
       "currentComponentVersion": "TBD",
       "comments": "Will discuss with Team for version upgrade"
     }
